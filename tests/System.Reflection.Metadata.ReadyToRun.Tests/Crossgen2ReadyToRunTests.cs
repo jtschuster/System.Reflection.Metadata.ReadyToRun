@@ -39,6 +39,16 @@ public sealed class Crossgen2ReadyToRunTests
         Assert.True(summary.MethodDefEntryPointCount >= 1);
     }
 
+    [Fact]
+    public void HandleTypesDistinguishPCodeFromRva()
+    {
+        Assert.Equal(typeof(PCode), typeof(RuntimeFunctionEntry).GetProperty(nameof(RuntimeFunctionEntry.StartPCode))?.PropertyType);
+        Assert.Null(typeof(RuntimeFunctionEntry).GetProperty("Index"));
+        Assert.Equal(typeof(CodeRva?), typeof(RuntimeFunctionEntry).GetProperty(nameof(RuntimeFunctionEntry.EndRva))?.PropertyType);
+        Assert.Equal(typeof(CodeRva), typeof(ExceptionInfoEntry).GetProperty(nameof(ExceptionInfoEntry.MethodRva))?.PropertyType);
+        Assert.Equal(typeof(DelayLoadMethodThunkRva), typeof(ReadyToRunSection).GetProperty(nameof(ReadyToRunSection.DelayLoadMethodThunkRva))?.PropertyType);
+    }
+
     private static Machine ExpectedMachine()
         => RuntimeInformation.ProcessArchitecture switch
         {

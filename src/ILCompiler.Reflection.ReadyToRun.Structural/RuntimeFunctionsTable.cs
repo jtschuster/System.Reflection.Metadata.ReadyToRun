@@ -36,12 +36,12 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             for (int i = 0; i < count; i++)
             {
-                var startRva = (CodeRva)_nativeReader.ReadInt32(ref offset);
+                var startPCode = (PCode)_nativeReader.ReadInt32(ref offset);
                 CodeRva? endRva = null;
                 if (isAmd64)
                     endRva = (CodeRva)_nativeReader.ReadInt32(ref offset);
                 var unwindRva = (UnwindInfoHandle)_nativeReader.ReadInt32(ref offset);
-                entries.Add(new RuntimeFunctionEntry(i, startRva, endRva, unwindRva));
+                entries.Add(new RuntimeFunctionEntry(startPCode, endRva, unwindRva));
             }
 
             return new RuntimeFunctionsTable(entries);
@@ -63,11 +63,11 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </summary>
     public sealed class RuntimeFunctionEntry
     {
-        /// <summary>Index of this entry in the RuntimeFunctions array.</summary>
-        public int Index { get; }
-
-        /// <summary>RVA of the start of the code.</summary>
-        public CodeRva StartRva { get; }
+        /// <summary>
+        /// Target code pointer for the start of the runtime function.
+        /// On ARM Thumb2 this includes the Thumb bit and is not a plain RVA.
+        /// </summary>
+        public PCode StartPCode { get; }
 
         /// <summary>RVA of the end of the code (Amd64 only; null on other architectures).</summary>
         public CodeRva? EndRva { get; }
@@ -75,14 +75,20 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>RVA of the unwind information.</summary>
         public UnwindInfoHandle UnwindRva { get; }
 
-        public RuntimeFunctionEntry(int index, CodeRva startRva, CodeRva? endRva, UnwindInfoHandle unwindRva)
+        public RuntimeFunctionEntry(PCode startPCode, CodeRva? endRva, UnwindInfoHandle unwindRva)
         {
-            Index = index;
-            StartRva = startRva;
+            StartPCode = startPCode;
             EndRva = endRva;
             UnwindRva = unwindRva;
         }
     }
+
+    /// <summary>
+    /// Opaque handle representing a target code pointer encoded in an R2R image.
+    /// This may differ from the raw code RVA by an architecture-specific code bit
+    /// such as the ARM Thumb bit.
+    /// </summary>
+    public enum PCode {}
 
     /// <summary>Opaque handle representing an RVA pointing to code in the image.</summary>
     public enum CodeRva {}

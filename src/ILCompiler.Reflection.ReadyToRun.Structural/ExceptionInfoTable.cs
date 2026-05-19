@@ -48,12 +48,12 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>
-    /// A single entry in the ExceptionInfo table: maps a method code RVA
+    /// A single entry in the ExceptionInfo table: maps a raw method code RVA
     /// to the RVA of its exception handling information.
     /// </summary>
     public sealed class ExceptionInfoEntry
     {
-        /// <summary>RVA of the method code.</summary>
+        /// <summary>Raw RVA of the method code. This is not a PCode value.</summary>
         public CodeRva MethodRva { get; }
 
         /// <summary>RVA of the exception handling info.</summary>

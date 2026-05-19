@@ -18,7 +18,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         public ReadyToRunSectionType Type { get; set; }
 
         /// <summary>
-        /// The RVA to the section
+        /// The raw RVA to the section. This is not a PCode value, including for
+        /// <see cref="ReadyToRunSectionType.DelayLoadMethodCallThunks"/>.
         /// </summary>
         public ImageRVA RelativeVirtualAddress { get; set; }
 
@@ -34,6 +35,25 @@ namespace System.Reflection.Metadata.ReadyToRun
             Size = size;
         }
 
+        /// <summary>
+        /// Gets the raw RVA for a <see cref="ReadyToRunSectionType.DelayLoadMethodCallThunks"/> section.
+        /// The section contains executable thunks, but the header section entry itself is a raw RVA,
+        /// not a PCode value.
+        /// </summary>
+        public DelayLoadMethodThunkRva DelayLoadMethodThunkRva
+        {
+            get
+            {
+                if (Type != ReadyToRunSectionType.DelayLoadMethodCallThunks)
+                {
+                    throw new InvalidOperationException(
+                        $"{nameof(DelayLoadMethodThunkRva)} is only valid for {ReadyToRunSectionType.DelayLoadMethodCallThunks} sections.");
+                }
+
+                return (DelayLoadMethodThunkRva)(int)RelativeVirtualAddress;
+            }
+        }
+
         public override string ToString()
         {
             throw new NotImplementedException();
@@ -42,4 +62,11 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     /// <summary>Opaque handle representing an RVA pointing to the start of a ReadyToRun section.</summary>
     public enum ImageRVA {}
+
+    /// <summary>
+    /// Opaque handle representing the raw RVA of the DelayLoadMethodCallThunks section.
+    /// This names the value separately from <see cref="PCode"/> because the section header
+    /// entry is not a target code pointer.
+    /// </summary>
+    public enum DelayLoadMethodThunkRva {}
 }
