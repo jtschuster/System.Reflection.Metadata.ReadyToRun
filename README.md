@@ -16,6 +16,17 @@ Install a .NET 11 SDK, then run:
 dotnet build RawR2RReader.slnx
 ```
 
+## Test
+
+```bash
+dotnet test RawR2RReader.slnx
+```
+
+The tests publish a small Hello World app with ReadyToRun enabled, inspect the
+result with `System.Reflection.Metadata.ReadyToRun`, and compare the parsed
+header and section layout with R2RDump when `R2RDump` is available on `PATH` or
+via `R2RDUMP_PATH`.
+
 ## License
 
 This project is derived from the .NET runtime repository and is licensed under the MIT license.

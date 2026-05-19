@@ -3,4 +3,7 @@
     <Project Path="src/ILCompiler.Reflection.ReadyToRun.Structural/ILCompiler.Reflection.ReadyToRun.Structural.csproj" />
     <Project Path="src/ILCompiler.Reflection.ReadyToRun.Structural.Assertions/ILCompiler.Reflection.ReadyToRun.Structural.Assertions.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/System.Reflection.Metadata.ReadyToRun.Tests/System.Reflection.Metadata.ReadyToRun.Tests.csproj" />
+  </Folder>
 </Solution>
