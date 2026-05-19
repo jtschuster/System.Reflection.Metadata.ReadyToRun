@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ILCompiler.Reflection.ReadyToRun.Structural/ILCompiler.Reflection.ReadyToRun.Structural.csproj" />
+    <Project Path="src/ILCompiler.Reflection.ReadyToRun.Structural.Assertions/ILCompiler.Reflection.ReadyToRun.Structural.Assertions.csproj" />
+  </Folder>
+</Solution>

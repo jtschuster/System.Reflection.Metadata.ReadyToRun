@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <NoWarn>$(NoWarn);8002;NU1701</NoWarn>
+    <!-- Copied legacy files trigger analyzer violations in this assembly context; suppress until cleaned up -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <AnalysisLevel>none</AnalysisLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Common\Internal\Runtime\CorConstants.cs" Link="Common\CorConstants.cs" />
+    <Compile Include="..\Common\Internal\Runtime\ModuleHeaders.cs" Link="Common\ModuleHeaders.cs" />
+    <Compile Include="..\Common\Internal\Runtime\ReadyToRunConstants.cs" Link="Common\ReadyToRunConstants.cs" />
+    <Compile Include="..\Common\Internal\Runtime\ReadyToRunInstructionSet.cs" Link="Common\ReadyToRunInstructionSet.cs" />
+    <Compile Include="..\Common\Pgo\PgoFormat.cs" Link="Common\PgoFormat.cs" />
+    <Compile Include="..\Common\MachO\**\*.cs" Link="MachO\%(RecursiveDir)%(Filename)%(Extension)" />
+
+    <!-- Files shared directly from the legacy ILCompiler.Reflection.ReadyToRun source tree.
+          Linked from the legacy source tree to avoid duplication. They live in the
+          System.Reflection.Metadata.ReadyToRun namespace within this assembly; consumers add
+         `using System.Reflection.Metadata.ReadyToRun;` to reach them. -->
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\BaseInfoTypes.cs" Link="BaseInfoTypes.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\DebugInfoTypes.cs" Link="DebugInfoTypes.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\OperatingSystem.cs" Link="OperatingSystem.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\CorExceptionFlag.cs" Link="CorExceptionFlag.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\PEReaderExtensions.cs" Link="PEReaderExtensions.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\NativeArray.cs" Link="NativeArray.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\NativeHashtable.cs" Link="NativeHashtable.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\NativeReader.cs" Link="NativeReader.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\NibbleReader.cs" Link="NibbleReader.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\DisassemblingTypeProvider.cs" Link="DisassemblingTypeProvider.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\GCInfoTypes.cs" Link="GCInfoTypes.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Amd64\UnwindInfo.cs" Link="Amd64\UnwindInfo.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Amd64\GcInfo.cs" Link="Amd64\GcInfo.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Amd64\GcSlotTable.cs" Link="Amd64\GcSlotTable.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Amd64\GcTransition.cs" Link="Amd64\GcTransition.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Amd64\Registers.cs" Link="Amd64\Registers.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Arm\UnwindInfo.cs" Link="Arm\UnwindInfo.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Arm\Registers.cs" Link="Arm\Registers.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Arm64\UnwindInfo.cs" Link="Arm64\UnwindInfo.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\Arm64\Registers.cs" Link="Arm64\Registers.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\LoongArch64\UnwindInfo.cs" Link="LoongArch64\UnwindInfo.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\LoongArch64\Registers.cs" Link="LoongArch64\Registers.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\RiscV64\UnwindInfo.cs" Link="RiscV64\UnwindInfo.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\RiscV64\Registers.cs" Link="RiscV64\Registers.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\x86\UnwindInfo.cs" Link="x86\UnwindInfo.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\x86\GcInfo.cs" Link="x86\GcInfo.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\x86\GcSlotTable.cs" Link="x86\GcSlotTable.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\x86\GcTransition.cs" Link="x86\GcTransition.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\x86\InfoHdr.cs" Link="x86\InfoHdr.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\x86\NoGcRegionTable.cs" Link="x86\NoGcRegionTable.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\x86\Registers.cs" Link="x86\Registers.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\x86\CallPattern.cs" Link="x86\CallPattern.cs" />
+    <Compile Include="..\ILCompiler.Reflection.ReadyToRun\MachO\BinaryFormat\NList64.cs" Link="MachO\BinaryFormat\NList64.cs" />
+
+  </ItemGroup>
+
+</Project>
