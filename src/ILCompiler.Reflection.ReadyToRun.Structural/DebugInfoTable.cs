@@ -37,7 +37,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int offset = default;
                 if (debugInfoArray.TryGetAt(i, ref offset))
                 {
-                    entries.Add(new DebugInfoEntry(i, (DebugInfoHandle)offset));
+                    entries.Add(new DebugInfoEntry((DebugInfoHandle)offset));
                 }
             }
 
@@ -46,20 +46,15 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>
-    /// A single entry in the DebugInfo table: maps a runtime function index
-    /// to the file offset of its debug data.
+    /// A single entry in the DebugInfo table containing the file offset of debug data.
     /// </summary>
     public sealed class DebugInfoEntry
     {
-        /// <summary>Runtime function index.</summary>
-        public uint RuntimeFunctionIndex { get; }
-
         /// <summary>File offset of the debug info data.</summary>
         public DebugInfoHandle DebugInfoOffset { get; }
 
-        public DebugInfoEntry(uint runtimeFunctionIndex, DebugInfoHandle debugInfoOffset)
+        public DebugInfoEntry(DebugInfoHandle debugInfoOffset)
         {
-            RuntimeFunctionIndex = runtimeFunctionIndex;
             DebugInfoOffset = debugInfoOffset;
         }
     }
