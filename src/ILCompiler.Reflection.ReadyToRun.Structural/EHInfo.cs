@@ -55,15 +55,11 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </remarks>
     public sealed class EHInfo
     {
-        /// <summary>Raw starting RVA of the corresponding runtime function. This is not a PCode value.</summary>
-        public CodeRva MethodRelativeVirtualAddress { get; }
-
         /// <summary>The EH clauses for this runtime function.</summary>
         public IReadOnlyList<EHClause> EHClauses { get; }
 
-        public EHInfo(CodeRva methodRva, IReadOnlyList<EHClause> clauses)
+        public EHInfo(IReadOnlyList<EHClause> clauses)
         {
-            MethodRelativeVirtualAddress = methodRva;
             EHClauses = clauses;
         }
     }
@@ -81,9 +77,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// so the caller must supply the byte length of the EH info region for this entry.
         /// </summary>
         /// <param name="handle">Handle pointing to the EH info RVA.</param>
-        /// <param name="methodRva">Raw code RVA of the method this EH info belongs to.</param>
         /// <param name="ehInfoByteLength">Byte length of the EH info region (distance to next entry or section end).</param>
-        public EHInfo GetEHInfo(EHInfoHandle handle, CodeRva methodRva, int ehInfoByteLength)
+        public EHInfo GetEHInfo(EHInfoHandle handle, int ehInfoByteLength)
         {
             if (_ehInfoCache.TryGetValue(handle, out EHInfo cached))
                 return cached;
@@ -108,7 +103,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 clauses.Add(new EHClause(flags, tryOffset, tryEnd, handlerOffset, handlerEnd, classTokenOrFilterOffset));
             }
 
-            var result = new EHInfo(methodRva, clauses);
+            var result = new EHInfo(clauses);
             _ehInfoCache[handle] = result;
 
             return result;
