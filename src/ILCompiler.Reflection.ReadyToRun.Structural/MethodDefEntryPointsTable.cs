@@ -17,9 +17,17 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </remarks>
     public sealed class MethodDefEntryPointsTable
     {
-        public IReadOnlyList<MethodDefEntry> Entries { get; }
+        /// <summary>
+        /// NativeArray whose slot <c>rowId - 1</c> stores the MethodDef entry payload for MethodDef row ID <c>rowId</c>.
+        /// </summary>
+        public NativeArrayHandle Entries { get; }
 
-        internal MethodDefEntryPointsTable(List<MethodDefEntry> entries)
+        /// <summary>
+        /// Number of MethodDef row ID slots represented by the underlying NativeArray.
+        /// </summary>
+        public int EntryCount => Entries.Count;
+
+        internal MethodDefEntryPointsTable(NativeArrayHandle entries)
         {
             Entries = entries;
         }
@@ -31,45 +39,67 @@ namespace System.Reflection.Metadata.ReadyToRun
         {
             int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
             NativeArray methodEntryPoints = new NativeArray(_nativeReader, (uint)sectionOffset);
-            uint count = methodEntryPoints.GetCount();
-
-            var entries = new List<MethodDefEntry>((int)count);
-
-            for (uint rid = 1; rid <= count; rid++)
-            {
-                int offset = 0;
-                if (!methodEntryPoints.TryGetAt(rid - 1, ref offset))
-                    continue;
-
-                (RuntimeFunctionIndex runtimeFunctionIndex, List<FixupCellRef> fixupCells) = DecodeRuntimeFunctionIdAndFixupCells(offset);
-
-                entries.Add(new MethodDefEntry(rid, runtimeFunctionIndex, fixupCells));
-            }
+            var entries = new NativeArrayHandle(sectionOffset, checked((int)methodEntryPoints.GetCount()));
 
             return new MethodDefEntryPointsTable(entries);
+        }
+
+        public bool TryGetMethodDefEntryPoint(MethodDefEntryPointsTable table, int rowId, out MethodDefEntry entry)
+        {
+            if (rowId <= 0 || rowId > table.EntryCount)
+            {
+                entry = null;
+                return false;
+            }
+
+            NativeArray methodEntryPoints = GetNativeArray(table.Entries);
+            int offset = 0;
+            if (!methodEntryPoints.TryGetAt((uint)(rowId - 1), ref offset))
+            {
+                entry = null;
+                return false;
+            }
+
+            entry = DecodeMethodDefEntryPoint(offset);
+            return true;
+        }
+
+        public IEnumerable<(int RowId, MethodDefEntry Entry)> EnumerateMethodDefEntryPoints(MethodDefEntryPointsTable table)
+        {
+            NativeArray methodEntryPoints = GetNativeArray(table.Entries);
+            for (int rowId = 1; rowId <= table.EntryCount; rowId++)
+            {
+                int offset = 0;
+                if (methodEntryPoints.TryGetAt((uint)(rowId - 1), ref offset))
+                    yield return (rowId, DecodeMethodDefEntryPoint(offset));
+            }
+        }
+
+        private NativeArray GetNativeArray(NativeArrayHandle handle)
+        {
+            return new NativeArray(_nativeReader, (uint)handle.Offset);
+        }
+
+        private MethodDefEntry DecodeMethodDefEntryPoint(int offset)
+        {
+            (RuntimeFunctionIndex runtimeFunctionIndex, List<FixupCellRef> fixupCells) = DecodeRuntimeFunctionIdAndFixupCells(offset);
+            return new MethodDefEntry(runtimeFunctionIndex, fixupCells);
         }
     }
 
     /// <summary>
-    /// One entry in the MethodDefEntryPoints table: a compiled method identified by
-    /// its MethodDef RID, with its RuntimeFunction index and fixup cell references.
-    /// Null entries in <see cref="MethodDefEntryPointsTable.Entries"/> indicate
-    /// MethodDef RIDs that have no compiled entrypoint.
+    /// One MethodDefEntryPoints payload containing the runtime function index and fixup cell references.
     /// </summary>
     public sealed class MethodDefEntry
     {
-        /// <summary>MethodDef RID (1-based).</summary>
-        public uint Rid { get; }
-
         /// <summary>Index into the RuntimeFunctions array.</summary>
         public RuntimeFunctionIndex EntryPointIndex { get; }
 
         /// <summary>Fixup cells this method needs resolved before execution.</summary>
         public IReadOnlyList<FixupCellRef> FixupCells { get; }
 
-        public MethodDefEntry(uint rid, RuntimeFunctionIndex entryPointIndex, List<FixupCellRef> fixupCells)
+        public MethodDefEntry(RuntimeFunctionIndex entryPointIndex, List<FixupCellRef> fixupCells)
         {
-            Rid = rid;
             EntryPointIndex = entryPointIndex;
             FixupCells = fixupCells;
         }

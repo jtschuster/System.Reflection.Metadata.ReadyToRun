@@ -123,13 +123,10 @@ internal sealed class MethodInventory
         MethodDefEntryPointsTable table = reader.GetMethodDefEntryPointsTable(section);
         MetadataReader mdReader = resolver.GetMetadataReader(moduleIndex);
 
-        foreach (MethodDefEntry entry in table.Entries)
+        foreach ((int rowId, MethodDefEntry entry) in reader.EnumerateMethodDefEntryPoints(table))
         {
-            if (entry is null)
-                continue;
-
-            string name = SafeFormatMethodDef(mdReader, (int)entry.Rid);
-            bool isAsync = TryDetectAsyncAttribute(mdReader, (int)entry.Rid);
+            string name = SafeFormatMethodDef(mdReader, rowId);
+            bool isAsync = TryDetectAsyncAttribute(mdReader, rowId);
 
             var fixups = ResolveFixupCells(entry.FixupCells, importSections);
 
@@ -138,7 +135,7 @@ internal sealed class MethodInventory
                 Signature = (isAsync ? "[ASYNC] " : "") + name,
                 SimpleName = name,
                 ModuleIndex = moduleIndex,
-                Rid = entry.Rid,
+                Rid = (uint)rowId,
                 IsAsync = isAsync,
                 IsResumeStub = false,
                 IsMemberRef = false,
