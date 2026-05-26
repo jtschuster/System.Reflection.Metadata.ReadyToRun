@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 
 namespace System.Reflection.Metadata.ReadyToRun
@@ -50,8 +51,8 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         /// <summary>
         /// Fully parse an <see cref="InstanceMethodEntry"/>: decode the method signature,
-        /// followed by the inline runtime-function-index and fixup cells. The payload
-        /// layout is method-signature || DecodeUnsigned(id) || optional back-reference || nibble-encoded fixups.
+        /// followed by the inline runtime-function-index and optional fixup-list handle. The payload
+        /// layout is method-signature || DecodeUnsigned(id) || optional back-reference.
         /// </summary>
         public InstanceMethodPayload GetInstanceMethodPayload(InstanceMethodEntry entry)
         {
@@ -59,33 +60,36 @@ namespace System.Reflection.Metadata.ReadyToRun
             MethodSignature method = MethodSignature.FromSignature(signature);
 
             int offset = signature.EndOffset;
-            (RuntimeFunctionIndex runtimeFunctionIndex, List<FixupCellRef> fixupCells) = DecodeRuntimeFunctionIdAndFixupCells(offset);
-            return new InstanceMethodPayload(method, runtimeFunctionIndex, fixupCells);
+            (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) = DecodeRuntimeFunctionIdAndFixupCellList(offset);
+            return new InstanceMethodPayload(method, runtimeFunctionIndex, fixupCellListHandle);
         }
 
         /// <summary>
         /// Shared decode for MethodDefEntry/InstanceMethodEntry payload tail:
-        /// compressed "id" (bit 0 = has-fixups, bit 1 = back-reference), followed by
-        /// optional nibble-encoded fixup cell list.
+        /// compressed "id" (bit 0 = has-fixups, bit 1 = back-reference), followed by optional fixup list data.
         /// </summary>
-        internal (RuntimeFunctionIndex, List<FixupCellRef>) DecodeRuntimeFunctionIdAndFixupCells(int offset)
+        internal (RuntimeFunctionIndex, FixupCellListHandle?) DecodeRuntimeFunctionIdAndFixupCellList(int offset)
         {
             uint id = 0;
             offset = (int)_nativeReader.DecodeUnsigned((uint)offset, ref id);
 
-            int? fixupOffset = null;
+            FixupCellListHandle? fixupCells = null;
             RuntimeFunctionIndex runtimeFunctionIndex;
 
             if ((id & 1) != 0)
             {
+                uint? backReferenceDelta = null;
+                int fixupOffset = offset;
+
                 if ((id & 2) != 0)
                 {
-                    uint val = 0;
-                    _nativeReader.DecodeUnsigned((uint)offset, ref val);
-                    offset -= (int)val;
+                    uint delta = 0;
+                    _nativeReader.DecodeUnsigned((uint)offset, ref delta);
+                    backReferenceDelta = delta;
+                    fixupOffset = checked(offset - (int)delta);
                 }
 
-                fixupOffset = offset;
+                fixupCells = new FixupCellListHandle(fixupOffset, backReferenceDelta);
                 runtimeFunctionIndex = (RuntimeFunctionIndex)(id >> 2);
             }
             else
@@ -93,55 +97,79 @@ namespace System.Reflection.Metadata.ReadyToRun
                 runtimeFunctionIndex = (RuntimeFunctionIndex)(id >> 1);
             }
 
+            return (runtimeFunctionIndex, fixupCells);
+        }
+
+        /// <summary>
+        /// Decodes the nibble-encoded fixup cell list referenced by a method entry payload.
+        /// </summary>
+        public IReadOnlyList<FixupCellRef> GetFixupCells(FixupCellListHandle fixupCellList)
+        {
             var fixupCells = new List<FixupCellRef>();
-            if (fixupOffset.HasValue)
+
+            NibbleReader nibbleReader = new NibbleReader(_nativeReader, fixupCellList.Offset);
+            uint curTableIndex = nibbleReader.ReadUInt();
+
+            while (true)
             {
-                NibbleReader nibbleReader = new NibbleReader(_nativeReader, fixupOffset.Value);
-                uint curTableIndex = nibbleReader.ReadUInt();
+                uint cellIndex = nibbleReader.ReadUInt();
 
                 while (true)
                 {
-                    uint cellIndex = nibbleReader.ReadUInt();
+                    fixupCells.Add(new FixupCellRef(curTableIndex, cellIndex));
 
-                    while (true)
-                    {
-                        fixupCells.Add(new FixupCellRef(curTableIndex, cellIndex));
-
-                        uint delta = nibbleReader.ReadUInt();
-                        if (delta == 0)
-                            break;
-
-                        cellIndex += delta;
-                    }
-
-                    uint tableDelta = nibbleReader.ReadUInt();
-                    if (tableDelta == 0)
+                    uint delta = nibbleReader.ReadUInt();
+                    if (delta == 0)
                         break;
 
-                    curTableIndex += tableDelta;
+                    cellIndex += delta;
                 }
+
+                uint tableDelta = nibbleReader.ReadUInt();
+                if (tableDelta == 0)
+                    break;
+
+                curTableIndex += tableDelta;
             }
 
-            return (runtimeFunctionIndex, fixupCells);
+            return fixupCells;
         }
     }
 
     /// <summary>
     /// Fully decoded payload for an <see cref="InstanceMethodEntry"/>:
     /// the method reference, the runtime function index of its entry point,
-    /// and any fixup cell references.
+    /// and a handle to any fixup cell references.
     /// </summary>
     public sealed class InstanceMethodPayload
     {
         public MethodSignature Method { get; }
         public RuntimeFunctionIndex EntryPointIndex { get; }
-        public IReadOnlyList<FixupCellRef> FixupCells { get; }
+        public FixupCellListHandle? FixupCellListHandle { get; }
 
-        public InstanceMethodPayload(MethodSignature method, RuntimeFunctionIndex entryPointIndex, IReadOnlyList<FixupCellRef> fixupCells)
+        public InstanceMethodPayload(MethodSignature method, RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
         {
             Method = method;
             EntryPointIndex = entryPointIndex;
-            FixupCells = fixupCells;
+            FixupCellListHandle = fixupCellListHandle;
+        }
+    }
+
+    public readonly struct FixupCellListHandle
+    {
+        internal int Offset { get; }
+
+        /// <summary>Encoded back-reference delta when <see cref="IsBackReference"/> is true; otherwise null.</summary>
+        internal uint? BackReferenceDelta { get; }
+
+        /// <summary>True when the method payload stores a delta to a previous fixup list instead of an inline list.</summary>
+        [MemberNotNullWhen(true, nameof(BackReferenceDelta))]
+        internal bool IsBackReference => BackReferenceDelta.HasValue;
+
+        internal FixupCellListHandle(int offset, uint? backReferenceDelta)
+        {
+            Offset = offset;
+            BackReferenceDelta = backReferenceDelta;
         }
     }
 

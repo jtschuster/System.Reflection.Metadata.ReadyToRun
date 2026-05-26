@@ -82,26 +82,26 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         private MethodDefEntry DecodeMethodDefEntryPoint(int offset)
         {
-            (RuntimeFunctionIndex runtimeFunctionIndex, List<FixupCellRef> fixupCells) = DecodeRuntimeFunctionIdAndFixupCells(offset);
-            return new MethodDefEntry(runtimeFunctionIndex, fixupCells);
+            (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) = DecodeRuntimeFunctionIdAndFixupCellList(offset);
+            return new MethodDefEntry(runtimeFunctionIndex, fixupCellListHandle);
         }
     }
 
     /// <summary>
-    /// One MethodDefEntryPoints payload containing the runtime function index and fixup cell references.
+    /// One MethodDefEntryPoints payload containing the runtime function index and optional fixup-list handle.
     /// </summary>
     public sealed class MethodDefEntry
     {
         /// <summary>Index into the RuntimeFunctions array.</summary>
         public RuntimeFunctionIndex EntryPointIndex { get; }
 
-        /// <summary>Fixup cells this method needs resolved before execution.</summary>
-        public IReadOnlyList<FixupCellRef> FixupCells { get; }
+        /// <summary>Handle to fixup cells this method needs resolved before execution.</summary>
+        public FixupCellListHandle? FixupCellListHandle { get; }
 
-        public MethodDefEntry(RuntimeFunctionIndex entryPointIndex, List<FixupCellRef> fixupCells)
+        public MethodDefEntry(RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
         {
             EntryPointIndex = entryPointIndex;
-            FixupCells = fixupCells;
+            FixupCellListHandle = fixupCellListHandle;
         }
     }
 

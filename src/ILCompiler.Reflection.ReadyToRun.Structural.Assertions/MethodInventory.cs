@@ -128,7 +128,7 @@ internal sealed class MethodInventory
             string name = SafeFormatMethodDef(mdReader, rowId);
             bool isAsync = TryDetectAsyncAttribute(mdReader, rowId);
 
-            var fixups = ResolveFixupCells(entry.FixupCells, importSections);
+            var fixups = ResolveFixupCells(reader, entry.FixupCellListHandle, importSections);
 
             output.Add(new MethodInventoryEntry
             {
@@ -222,7 +222,7 @@ internal sealed class MethodInventory
             string name = FormatMethodFromSignature(methodSig, resolver);
             bool isAsync = methodSig.Flags.HasFlag(ReadyToRunMethodSigFlags.READYTORUN_METHOD_SIG_AsyncVariant);
 
-            var fixups = ResolveFixupCells(payload.FixupCells, importSections);
+            var fixups = ResolveFixupCells(reader, payload.FixupCellListHandle, importSections);
 
             output.Add(new MethodInventoryEntry
             {
@@ -240,6 +240,17 @@ internal sealed class MethodInventory
     }
 
     // ─── Fixup cell resolution ─────────────────────────────────────────────
+
+    private static IReadOnlyList<FixupInfo> ResolveFixupCells(
+        StructuralReader reader,
+        FixupCellListHandle? cellList,
+        IReadOnlyList<ImportSectionSignatures> importSections)
+    {
+        if (!cellList.HasValue)
+            return Array.Empty<FixupInfo>();
+
+        return ResolveFixupCells(reader.GetFixupCells(cellList.Value), importSections);
+    }
 
     private static IReadOnlyList<FixupInfo> ResolveFixupCells(
         IReadOnlyList<FixupCellRef> cellRefs,
