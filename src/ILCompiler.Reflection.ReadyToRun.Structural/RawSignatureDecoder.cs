@@ -22,45 +22,48 @@ namespace System.Reflection.Metadata.ReadyToRun;
 /// <see cref="SignaturePartKind.MethodModuleOverride"/>, and
 /// <see cref="SignaturePartKind.FixupModuleOverride"/> parts.
 /// </summary>
-public static class RawSignatureDecoder
+internal static class RawSignatureDecoder
 {
-    // ── Public entry points: materialize a full R2RSignature ─────────────
+    // ── Entry points: materialize a full R2RSignature ────────────────────
 
-    public static R2RSignature DecodeMethodSignature(NativeReader reader, int offset, int targetPointerSize)
+    internal static R2RSignature DecodeMethodSignature(NativeReader reader, int offset, int targetPointerSize)
+        => DecodeMethodSignatureWithEndOffset(reader, offset, targetPointerSize).Signature;
+
+    internal static R2RSignatureDecodeResult DecodeMethodSignatureWithEndOffset(NativeReader reader, int offset, int targetPointerSize)
         => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitMethod());
 
-    public static R2RSignature DecodeTypeSignature(NativeReader reader, int offset, int targetPointerSize)
-        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitType());
+    internal static R2RSignature DecodeTypeSignature(NativeReader reader, int offset, int targetPointerSize)
+        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitType()).Signature;
 
-    public static R2RSignature DecodeFieldSignature(NativeReader reader, int offset, int targetPointerSize)
-        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitField());
+    internal static R2RSignature DecodeFieldSignature(NativeReader reader, int offset, int targetPointerSize)
+        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitField()).Signature;
 
-    public static R2RSignature DecodeFixupSignature(NativeReader reader, int offset, int targetPointerSize)
-        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitFixup());
+    internal static R2RSignature DecodeFixupSignature(NativeReader reader, int offset, int targetPointerSize)
+        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitFixup()).Signature;
 
-    // ── Public enumerators: lazy IEnumerable<SignaturePart> ──────────────
+    // ── Enumerators: lazy IEnumerable<SignaturePart> ─────────────────────
 
-    public static IEnumerable<SignaturePart> EnumerateMethodParts(NativeReader reader, int offset, int targetPointerSize)
+    internal static IEnumerable<SignaturePart> EnumerateMethodParts(NativeReader reader, int offset, int targetPointerSize)
         => new Context(reader, offset, targetPointerSize).EmitMethod();
 
-    public static IEnumerable<SignaturePart> EnumerateTypeParts(NativeReader reader, int offset, int targetPointerSize)
+    internal static IEnumerable<SignaturePart> EnumerateTypeParts(NativeReader reader, int offset, int targetPointerSize)
         => new Context(reader, offset, targetPointerSize).EmitType();
 
-    public static IEnumerable<SignaturePart> EnumerateFieldParts(NativeReader reader, int offset, int targetPointerSize)
+    internal static IEnumerable<SignaturePart> EnumerateFieldParts(NativeReader reader, int offset, int targetPointerSize)
         => new Context(reader, offset, targetPointerSize).EmitField();
 
-    public static IEnumerable<SignaturePart> EnumerateFixupParts(NativeReader reader, int offset, int targetPointerSize)
+    internal static IEnumerable<SignaturePart> EnumerateFixupParts(NativeReader reader, int offset, int targetPointerSize)
         => new Context(reader, offset, targetPointerSize).EmitFixup();
 
     // ── Materialization helper ───────────────────────────────────────────
 
-    private static R2RSignature Materialize(NativeReader reader, int offset, int targetPointerSize, Func<Context, IEnumerable<SignaturePart>> emit)
+    private static R2RSignatureDecodeResult Materialize(NativeReader reader, int offset, int targetPointerSize, Func<Context, IEnumerable<SignaturePart>> emit)
     {
         var ctx = new Context(reader, offset, targetPointerSize);
         var builder = ImmutableArray.CreateBuilder<SignaturePart>();
         foreach (var part in emit(ctx))
             builder.Add(part);
-        return new R2RSignature(builder.ToImmutable(), offset, ctx.Offset);
+        return new R2RSignatureDecodeResult(new R2RSignature(builder.ToImmutable()), ctx.Offset);
     }
 
     // ── Stateful decode context (mutated during yield return execution) ──

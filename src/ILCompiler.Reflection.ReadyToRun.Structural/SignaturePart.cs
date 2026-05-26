@@ -156,27 +156,30 @@ public readonly struct SignaturePart
 }
 
 /// <summary>
-/// A raw R2R signature materialized as a flat stream of <see cref="SignaturePart"/>
-/// values plus the start/end byte offsets in the underlying image.
+/// A raw R2R signature materialized as a flat stream of <see cref="SignaturePart"/> values.
 /// </summary>
 public sealed class R2RSignature
 {
     public ImmutableArray<SignaturePart> Parts { get; }
 
-    /// <summary>Byte offset in the underlying NativeReader where the signature started.</summary>
-    public int StartOffset { get; }
+    public R2RSignature(ImmutableArray<SignaturePart> parts)
+    {
+        Parts = parts;
+    }
+
+    public IEnumerable<SignaturePart> AsEnumerable() => Parts;
+}
+
+internal sealed class R2RSignatureDecodeResult
+{
+    public R2RSignature Signature { get; }
 
     /// <summary>Byte offset in the underlying NativeReader immediately after the signature.</summary>
     public int EndOffset { get; }
 
-    public R2RSignature(ImmutableArray<SignaturePart> parts, int startOffset, int endOffset)
+    internal R2RSignatureDecodeResult(R2RSignature signature, int endOffset)
     {
-        Parts = parts;
-        StartOffset = startOffset;
+        Signature = signature;
         EndOffset = endOffset;
     }
-
-    public int ByteLength => EndOffset - StartOffset;
-
-    public IEnumerable<SignaturePart> AsEnumerable() => Parts;
 }

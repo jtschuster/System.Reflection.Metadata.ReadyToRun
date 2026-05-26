@@ -56,8 +56,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public InstanceMethodPayload GetInstanceMethodPayload(InstanceMethodEntry entry)
         {
-            R2RSignature signature = RawSignatureDecoder.DecodeMethodSignature(_nativeReader, entry.SignatureBlobOffset, TargetPointerSize);
-            MethodSignature method = MethodSignature.FromSignature(signature);
+            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, entry.SignatureBlobOffset, TargetPointerSize);
+            MethodSignature method = MethodSignature.FromSignature(signature.Signature);
 
             int offset = signature.EndOffset;
             (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) = DecodeRuntimeFunctionIdAndFixupCellList(offset);
