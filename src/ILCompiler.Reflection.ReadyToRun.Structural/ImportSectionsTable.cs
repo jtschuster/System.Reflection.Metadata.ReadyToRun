@@ -43,11 +43,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Import section type.</summary>
         public ReadyToRunImportSectionType Type { get; }
 
-        /// <summary>Size of each entry in bytes.</summary>
-        public byte EntrySize { get; }
-
-        /// <summary>Number of entries in the import section.</summary>
-        public int EntryCount { get; }
+        /// <summary>Encoded entry size byte. Zero means use the machine pointer size.</summary>
+        public byte EncodedEntrySize { get; }
 
         /// <summary>RVA of the signature indirection table for this section.</summary>
         public SignatureTableHandle SignatureTableRva { get; }
@@ -60,8 +57,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             int sectionSize,
             ReadyToRunImportSectionFlags flags,
             ReadyToRunImportSectionType type,
-            byte entrySize,
-            int entryCount,
+            byte encodedEntrySize,
             SignatureTableHandle signatureTableRva,
             AuxiliaryDataTableHandle auxiliaryDataRva)
         {
@@ -69,8 +65,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             SectionSize = sectionSize;
             Flags = flags;
             Type = type;
-            EntrySize = entrySize;
-            EntryCount = entryCount;
+            EncodedEntrySize = encodedEntrySize;
             SignatureTableRva = signatureTableRva;
             AuxiliaryDataRva = auxiliaryDataRva;
         }
@@ -90,35 +85,40 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int sectionSize = this.ImageReader.ReadInt32(ref offset);
                 var flags = (ReadyToRunImportSectionFlags)this.ImageReader.ReadUInt16(ref offset);
                 var type = (ReadyToRunImportSectionType)this.ImageReader.ReadByte(ref offset);
-                byte entrySize = this.ImageReader.ReadByte(ref offset);
-
-                if (entrySize == 0)
-                {
-                    entrySize = this.Machine switch
-                    {
-                        Machine.I386 or Machine.ArmThumb2 => 4,
-                        Machine.Amd64 or Machine.Arm64 or Machine.LoongArch64 or Machine.RiscV64 => 8,
-                        _ => throw new System.NotImplementedException(this.Machine.ToString()),
-                    };
-                }
+                byte encodedEntrySize = this.ImageReader.ReadByte(ref offset);
 
                 int signatureRva = this.ImageReader.ReadInt32(ref offset);
                 int auxiliaryDataRva = this.ImageReader.ReadInt32(ref offset);
-
-                int entryCount = entrySize != 0 ? sectionSize / entrySize : 0;
 
                 entries.Add(new ImportSectionEntry(
                     (ImportSlotTableHandle)sectionRva,
                     sectionSize,
                     flags,
                     type,
-                    entrySize,
-                    entryCount,
+                    encodedEntrySize,
                     (SignatureTableHandle)signatureRva,
                     (AuxiliaryDataTableHandle)auxiliaryDataRva));
             }
 
             return new ImportSectionsTableSection(entries);
+        }
+
+        public int GetImportSectionEntrySize(ImportSectionEntry entry)
+        {
+            if (entry.EncodedEntrySize != 0)
+                return entry.EncodedEntrySize;
+
+            return this.Machine switch
+            {
+                Machine.I386 or Machine.ArmThumb2 => 4,
+                Machine.Amd64 or Machine.Arm64 or Machine.LoongArch64 or Machine.RiscV64 => 8,
+                _ => throw new System.NotImplementedException(this.Machine.ToString()),
+            };
+        }
+
+        public int GetImportSectionEntryCount(ImportSectionEntry entry)
+        {
+            return entry.SectionSize / GetImportSectionEntrySize(entry);
         }
     }
 

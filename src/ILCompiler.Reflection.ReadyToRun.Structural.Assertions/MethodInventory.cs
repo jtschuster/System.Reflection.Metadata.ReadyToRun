@@ -84,11 +84,12 @@ internal sealed class MethodInventory
             uint tableIndex = 0;
             foreach (ImportSectionEntry entry in table.Entries)
             {
-                var sigs = new R2RFixupSignature[entry.EntryCount];
-                if ((int)entry.SignatureTableRva != 0 && entry.EntryCount > 0)
+                int entryCount = reader.GetImportSectionEntryCount(entry);
+                var sigs = new R2RFixupSignature[entryCount];
+                if ((int)entry.SignatureTableRva != 0 && entryCount > 0)
                 {
                     int sigTableOffset = reader.GetOffsetForRVA((int)entry.SignatureTableRva);
-                    for (int i = 0; i < entry.EntryCount; i++)
+                    for (int i = 0; i < entryCount; i++)
                     {
                         int sigPtrOffset = sigTableOffset + i * sizeof(int);
                         uint sigRva = nativeReader.ReadUInt32(ref sigPtrOffset);
