@@ -356,10 +356,10 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
                             InliningInfoTable table = _reader.GetInliningInfoTable(s);
                             foreach (InliningInfoEntry e in table.Entries)
                             {
-                                string inlinee = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(0), e.InlineeRid);
-                                foreach (int inlinerRid in e.InlinerRids)
+                                string inlinee = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(0), (int)e.InlineeRid);
+                                foreach (MethodRid inlinerRid in _reader.GetInliners(e.InlinersHandle))
                                 {
-                                    string inliner = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(0), inlinerRid);
+                                    string inliner = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(0), (int)inlinerRid);
                                     yield return (inliner, inlinee);
                                 }
                             }

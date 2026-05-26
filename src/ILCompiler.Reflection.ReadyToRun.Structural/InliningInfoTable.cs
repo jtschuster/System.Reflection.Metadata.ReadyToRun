@@ -38,41 +38,64 @@ namespace System.Reflection.Metadata.ReadyToRun
             {
                 int inlineeRid = _nativeReader.ReadInt32(ref offset);
                 int inlinersRelativeOffset = _nativeReader.ReadInt32(ref offset);
-
-                var nibbleReader = new NibbleReader(_nativeReader, inlineIndexEndOffset + inlinersRelativeOffset);
-                uint sameModuleCount = nibbleReader.ReadUInt();
-
-                var inlinerRids = new List<int>();
-                int baseRid = 0;
-                for (uint i = 0; i < sameModuleCount; i++)
-                {
-                    int currentRid = baseRid + (int)nibbleReader.ReadUInt();
-                    inlinerRids.Add(currentRid);
-                    baseRid = currentRid;
-                }
-
-                entries.Add(new InliningInfoEntry(inlineeRid, inlinerRids));
+                var handle = new InlinerListHandle(inlineIndexEndOffset + inlinersRelativeOffset);
+                entries.Add(new InliningInfoEntry((MethodRid)inlineeRid, handle));
             }
 
             return new InliningInfoTable(entries);
         }
+
+        /// <summary>
+        /// Decode the nibble-encoded inliner RID list referenced by <paramref name="handle"/>.
+        /// </summary>
+        public IReadOnlyList<MethodRid> GetInliners(InlinerListHandle handle)
+        {
+            var nibbleReader = new NibbleReader(_nativeReader, handle.StreamOffset);
+            uint sameModuleCount = nibbleReader.ReadUInt();
+
+            var inlinerRids = new List<MethodRid>((int)sameModuleCount);
+            int baseRid = 0;
+            for (uint i = 0; i < sameModuleCount; i++)
+            {
+                int currentRid = baseRid + (int)nibbleReader.ReadUInt();
+                inlinerRids.Add((MethodRid)currentRid);
+                baseRid = currentRid;
+            }
+
+            return inlinerRids;
+        }
     }
 
     /// <summary>
-    /// A single entry in the v1 InliningInfo table.
+    /// A single entry in the v1 InliningInfo index.
     /// </summary>
     public sealed class InliningInfoEntry
     {
         /// <summary>MethodDef RID of the inlinee.</summary>
-        public int InlineeRid { get; }
+        public MethodRid InlineeRid { get; }
 
-        /// <summary>MethodDef RIDs of the methods that inline the inlinee.</summary>
-        public IReadOnlyList<int> InlinerRids { get; }
+        /// <summary>Handle to the nibble-encoded inliner RID list. Resolve with <see cref="ReadyToRunReader.GetInliners"/>.</summary>
+        public InlinerListHandle InlinersHandle { get; }
 
-        public InliningInfoEntry(int inlineeRid, List<int> inlinerRids)
+        public InliningInfoEntry(MethodRid inlineeRid, InlinerListHandle inlinersHandle)
         {
             InlineeRid = inlineeRid;
-            InlinerRids = inlinerRids;
+            InlinersHandle = inlinersHandle;
+        }
+    }
+
+    /// <summary>Strong type for a MethodDef row ID (1-based).</summary>
+    public enum MethodRid {}
+
+    /// <summary>Opaque handle to a nibble-encoded inliner RID list in the v1 InliningInfo section.</summary>
+    public readonly struct InlinerListHandle
+    {
+        /// <summary>Absolute file offset of the nibble-encoded inliner list.</summary>
+        internal int StreamOffset { get; }
+
+        internal InlinerListHandle(int streamOffset)
+        {
+            StreamOffset = streamOffset;
         }
     }
 }
