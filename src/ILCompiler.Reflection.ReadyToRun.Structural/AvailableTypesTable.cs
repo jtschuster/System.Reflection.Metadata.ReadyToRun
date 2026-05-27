@@ -64,7 +64,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Whether this entry refers to an ExportedType (true) or TypeDef (false).</summary>
         public bool IsExportedType { get; }
 
-        public AvailableTypeEntry(uint rid, bool isExportedType)
+        internal AvailableTypeEntry(uint rid, bool isExportedType)
         {
             Rid = rid;
             IsExportedType = isExportedType;

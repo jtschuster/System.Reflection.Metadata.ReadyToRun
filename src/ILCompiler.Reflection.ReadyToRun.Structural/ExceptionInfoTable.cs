@@ -59,7 +59,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>RVA of the exception handling info.</summary>
         public EHInfoHandle EhInfoRva { get; }
 
-        public ExceptionInfoEntry(CodeRva methodRva, EHInfoHandle ehInfoRva)
+        internal ExceptionInfoEntry(CodeRva methodRva, EHInfoHandle ehInfoRva)
         {
             MethodRva = methodRva;
             EhInfoRva = ehInfoRva;

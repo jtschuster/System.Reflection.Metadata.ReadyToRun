@@ -53,7 +53,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>File offset of the debug info data.</summary>
         public DebugInfoHandle DebugInfoOffset { get; }
 
-        public DebugInfoEntry(DebugInfoHandle debugInfoOffset)
+        internal DebugInfoEntry(DebugInfoHandle debugInfoOffset)
         {
             DebugInfoOffset = debugInfoOffset;
         }

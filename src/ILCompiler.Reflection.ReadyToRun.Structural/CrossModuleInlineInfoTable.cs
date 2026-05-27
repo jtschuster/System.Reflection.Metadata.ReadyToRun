@@ -123,7 +123,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>List of inliner references.</summary>
         public IReadOnlyList<CrossModuleInlinerRef> Inliners { get; }
 
-        public CrossModuleInlineEntry(bool isCrossModuleInlinee, uint inlineeIndex, uint inlineeModuleIndex, List<CrossModuleInlinerRef> inliners)
+        internal CrossModuleInlineEntry(bool isCrossModuleInlinee, uint inlineeIndex, uint inlineeModuleIndex, List<CrossModuleInlinerRef> inliners)
         {
             IsCrossModuleInlinee = isCrossModuleInlinee;
             InlineeIndex = inlineeIndex;
@@ -149,7 +149,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Module index for local inliners.</summary>
         public uint ModuleIndex { get; }
 
-        public CrossModuleInlinerRef(bool isCrossModule, uint index, uint moduleIndex)
+        internal CrossModuleInlinerRef(bool isCrossModule, uint index, uint moduleIndex)
         {
             IsCrossModule = isCrossModule;
             Index = index;

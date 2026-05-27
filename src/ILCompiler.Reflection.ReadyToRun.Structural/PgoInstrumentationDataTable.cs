@@ -110,7 +110,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Low byte of the hash code used for hashtable bucketing.</summary>
         public byte LowHashcode { get; }
 
-        public PgoEntry(int signatureBlobOffset, byte lowHashcode)
+        internal PgoEntry(int signatureBlobOffset, byte lowHashcode)
         {
             SignatureBlobOffset = signatureBlobOffset;
             LowHashcode = lowHashcode;
@@ -134,7 +134,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public int PgoDataBlobOffset { get; }
 
-        public PgoPayload(R2RSignature methodSignature, int pgoFormatVersion, int pgoDataBlobOffset)
+        internal PgoPayload(R2RSignature methodSignature, int pgoFormatVersion, int pgoDataBlobOffset)
         {
             MethodSignature = methodSignature;
             PgoFormatVersion = pgoFormatVersion;

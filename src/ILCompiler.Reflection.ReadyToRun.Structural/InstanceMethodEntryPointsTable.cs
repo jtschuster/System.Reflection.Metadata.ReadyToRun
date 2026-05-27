@@ -147,7 +147,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         public RuntimeFunctionIndex EntryPointIndex { get; }
         public FixupCellListHandle? FixupCellListHandle { get; }
 
-        public InstanceMethodPayload(R2RSignature methodSignature, RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
+        internal InstanceMethodPayload(R2RSignature methodSignature, RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
         {
             MethodSignature = methodSignature;
             EntryPointIndex = entryPointIndex;
@@ -187,7 +187,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Low byte of the hash code used for hashtable bucketing.</summary>
         public byte LowHashcode { get; }
 
-        public InstanceMethodEntry(int signatureBlobOffset, byte lowHashcode)
+        internal InstanceMethodEntry(int signatureBlobOffset, byte lowHashcode)
         {
             SignatureBlobOffset = signatureBlobOffset;
             LowHashcode = lowHashcode;

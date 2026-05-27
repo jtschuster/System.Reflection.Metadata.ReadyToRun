@@ -25,7 +25,7 @@ public sealed class DebugInfo
     /// <summary>Native variable location information.</summary>
     public IReadOnlyList<NativeVarInfo> Variables { get; }
 
-    public DebugInfo(
+    internal DebugInfo(
         IReadOnlyList<DebugInfoBoundsEntry> bounds,
         IReadOnlyList<NativeVarInfo> variables)
     {

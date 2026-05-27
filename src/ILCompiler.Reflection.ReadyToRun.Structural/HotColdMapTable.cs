@@ -55,7 +55,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Index of the cold runtime function.</summary>
         public int ColdRuntimeFunctionIndex { get; }
 
-        public HotColdMapEntry(int hotRuntimeFunctionIndex, int coldRuntimeFunctionIndex)
+        internal HotColdMapEntry(int hotRuntimeFunctionIndex, int coldRuntimeFunctionIndex)
         {
             HotRuntimeFunctionIndex = hotRuntimeFunctionIndex;
             ColdRuntimeFunctionIndex = coldRuntimeFunctionIndex;

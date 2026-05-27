@@ -77,7 +77,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Handle to the nibble-encoded inliner RID list. Resolve with <see cref="ReadyToRunReader.GetInliners"/>.</summary>
         public InlinerListHandle InlinersHandle { get; }
 
-        public InliningInfoEntry(MethodRid inlineeRid, InlinerListHandle inlinersHandle)
+        internal InliningInfoEntry(MethodRid inlineeRid, InlinerListHandle inlinersHandle)
         {
             InlineeRid = inlineeRid;
             InlinersHandle = inlinersHandle;

@@ -75,7 +75,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>RVA of the unwind information.</summary>
         public UnwindInfoHandle UnwindRva { get; }
 
-        public RuntimeFunctionEntry(PCode startPCode, CodeRva? endRva, UnwindInfoHandle unwindRva)
+        internal RuntimeFunctionEntry(PCode startPCode, CodeRva? endRva, UnwindInfoHandle unwindRva)
         {
             StartPCode = startPCode;
             EndRva = endRva;

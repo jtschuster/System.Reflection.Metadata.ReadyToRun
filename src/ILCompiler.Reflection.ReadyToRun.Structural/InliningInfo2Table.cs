@@ -105,7 +105,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>List of inliner method references.</summary>
         public IReadOnlyList<InlinerRef> Inliners { get; }
 
-        public InliningInfo2Entry(MethodRid inlineeRid, bool inlineeHasModule, uint inlineeModuleIndex, List<InlinerRef> inliners)
+        internal InliningInfo2Entry(MethodRid inlineeRid, bool inlineeHasModule, uint inlineeModuleIndex, List<InlinerRef> inliners)
         {
             InlineeRid = inlineeRid;
             InlineeHasModule = inlineeHasModule;
@@ -128,7 +128,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Module index of the inliner (0 = owner module).</summary>
         public uint ModuleIndex { get; }
 
-        public InlinerRef(MethodRid rid, bool hasModule, uint moduleIndex)
+        internal InlinerRef(MethodRid rid, bool hasModule, uint moduleIndex)
         {
             Rid = rid;
             HasModule = hasModule;

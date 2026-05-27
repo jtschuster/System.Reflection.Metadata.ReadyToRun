@@ -71,7 +71,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Size of the per-assembly R2R header.</summary>
         public int AssemblyHeaderSize { get; }
 
-        public ComponentAssemblyEntry(int corHeaderRva, int corHeaderSize, int assemblyHeaderRva, int assemblyHeaderSize)
+        internal ComponentAssemblyEntry(int corHeaderRva, int corHeaderSize, int assemblyHeaderRva, int assemblyHeaderSize)
         {
             CorHeaderRva = corHeaderRva;
             CorHeaderSize = corHeaderSize;

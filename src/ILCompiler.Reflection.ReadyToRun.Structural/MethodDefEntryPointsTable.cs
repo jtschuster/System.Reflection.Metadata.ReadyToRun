@@ -99,7 +99,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Handle to fixup cells this method needs resolved before execution.</summary>
         public FixupCellListHandle? FixupCellListHandle { get; }
 
-        public MethodDefEntry(RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
+        internal MethodDefEntry(RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
         {
             EntryPointIndex = entryPointIndex;
             FixupCellListHandle = fixupCellListHandle;
@@ -118,7 +118,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Index of the entry within the import section.</summary>
         public uint CellIndex { get; }
 
-        public FixupCellRef(uint tableIndex, uint cellIndex)
+        internal FixupCellRef(uint tableIndex, uint cellIndex)
         {
             TableIndex = tableIndex;
             CellIndex = cellIndex;

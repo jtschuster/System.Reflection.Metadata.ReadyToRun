@@ -36,7 +36,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public uint ClassTokenOrFilterOffset { get; }
 
-        public EHClause(CorExceptionFlag flags, uint tryOffset, uint tryEnd, uint handlerOffset, uint handlerEnd, uint classTokenOrFilterOffset)
+        internal EHClause(CorExceptionFlag flags, uint tryOffset, uint tryEnd, uint handlerOffset, uint handlerEnd, uint classTokenOrFilterOffset)
         {
             Flags = flags;
             TryOffset = tryOffset;
@@ -58,7 +58,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>The EH clauses for this runtime function.</summary>
         public IReadOnlyList<EHClause> EHClauses { get; }
 
-        public EHInfo(IReadOnlyList<EHClause> clauses)
+        internal EHInfo(IReadOnlyList<EHClause> clauses)
         {
             EHClauses = clauses;
         }
