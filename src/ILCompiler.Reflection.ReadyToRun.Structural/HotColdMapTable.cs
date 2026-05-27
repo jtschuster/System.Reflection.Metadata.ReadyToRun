@@ -36,7 +36,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             {
                 int coldRuntimeFunctionIndex = _nativeReader.ReadInt32(ref offset);
                 int hotRuntimeFunctionIndex = _nativeReader.ReadInt32(ref offset);
-                entries.Add(new HotColdMapEntry(hotRuntimeFunctionIndex, coldRuntimeFunctionIndex));
+                entries.Add(new HotColdMapEntry((RuntimeFunctionIndex)hotRuntimeFunctionIndex, (RuntimeFunctionIndex)coldRuntimeFunctionIndex));
             }
 
             return new HotColdMapTable(entries);
@@ -50,12 +50,12 @@ namespace System.Reflection.Metadata.ReadyToRun
     public sealed class HotColdMapEntry
     {
         /// <summary>Index of the hot runtime function.</summary>
-        public int HotRuntimeFunctionIndex { get; }
+        public RuntimeFunctionIndex HotRuntimeFunctionIndex { get; }
 
         /// <summary>Index of the cold runtime function.</summary>
-        public int ColdRuntimeFunctionIndex { get; }
+        public RuntimeFunctionIndex ColdRuntimeFunctionIndex { get; }
 
-        internal HotColdMapEntry(int hotRuntimeFunctionIndex, int coldRuntimeFunctionIndex)
+        internal HotColdMapEntry(RuntimeFunctionIndex hotRuntimeFunctionIndex, RuntimeFunctionIndex coldRuntimeFunctionIndex)
         {
             HotRuntimeFunctionIndex = hotRuntimeFunctionIndex;
             ColdRuntimeFunctionIndex = coldRuntimeFunctionIndex;
