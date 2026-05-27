@@ -70,7 +70,6 @@ namespace System.Reflection.Metadata.ReadyToRun
         public PgoPayload GetPgoPayload(PgoEntry entry)
         {
             R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, entry.SignatureBlobOffset, TargetPointerSize);
-            MethodSignature method = MethodSignature.FromSignature(signature.Signature);
 
             int offset = signature.EndOffset;
             uint versionAndFlags = 0;
@@ -94,7 +93,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
 
             int pgoFormatVersion = (int)(versionAndFlags >> 2);
-            return new PgoPayload(method, pgoFormatVersion, pgoDataBlobOffset);
+            return new PgoPayload(signature.Signature, pgoFormatVersion, pgoDataBlobOffset);
         }
     }
 
@@ -123,8 +122,8 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </summary>
     public sealed class PgoPayload
     {
-        /// <summary>The method whose PGO data this entry holds.</summary>
-        public MethodSignature Method { get; }
+        /// <summary>Raw method signature parts for the method whose PGO data this entry holds.</summary>
+        public R2RSignature MethodSignature { get; }
 
         /// <summary>PGO format version (the high bits of the versionAndFlags word).</summary>
         public int PgoFormatVersion { get; }
@@ -135,9 +134,9 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public int PgoDataBlobOffset { get; }
 
-        public PgoPayload(MethodSignature method, int pgoFormatVersion, int pgoDataBlobOffset)
+        public PgoPayload(R2RSignature methodSignature, int pgoFormatVersion, int pgoDataBlobOffset)
         {
-            Method = method;
+            MethodSignature = methodSignature;
             PgoFormatVersion = pgoFormatVersion;
             PgoDataBlobOffset = pgoDataBlobOffset;
         }
