@@ -77,10 +77,10 @@ namespace System.Reflection.Metadata.ReadyToRun
                         count--;
                     }
 
-                    inliners.Add(new InlinerRef(currentRid, inlinerHasModule, inlinerModuleIndex));
+                    inliners.Add(new InlinerRef((MethodRid)currentRid, inlinerHasModule, inlinerModuleIndex));
                 }
 
-                entries.Add(new InliningInfo2Entry(inlineeRid, inlineeHasModule, inlineeModuleIndex, inliners));
+                entries.Add(new InliningInfo2Entry((MethodRid)inlineeRid, inlineeHasModule, inlineeModuleIndex, inliners));
                 curParser = enumerator.GetNext();
             }
 
@@ -94,7 +94,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     public sealed class InliningInfo2Entry
     {
         /// <summary>MethodDef RID of the inlinee.</summary>
-        public int InlineeRid { get; }
+        public MethodRid InlineeRid { get; }
 
         /// <summary>Whether the inlinee has a module index override.</summary>
         public bool InlineeHasModule { get; }
@@ -105,7 +105,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>List of inliner method references.</summary>
         public IReadOnlyList<InlinerRef> Inliners { get; }
 
-        public InliningInfo2Entry(int inlineeRid, bool inlineeHasModule, uint inlineeModuleIndex, List<InlinerRef> inliners)
+        public InliningInfo2Entry(MethodRid inlineeRid, bool inlineeHasModule, uint inlineeModuleIndex, List<InlinerRef> inliners)
         {
             InlineeRid = inlineeRid;
             InlineeHasModule = inlineeHasModule;
@@ -120,7 +120,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     public sealed class InlinerRef
     {
         /// <summary>MethodDef RID of the inliner.</summary>
-        public int Rid { get; }
+        public MethodRid Rid { get; }
 
         /// <summary>Whether this inliner has a module index override.</summary>
         public bool HasModule { get; }
@@ -128,7 +128,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Module index of the inliner (0 = owner module).</summary>
         public uint ModuleIndex { get; }
 
-        public InlinerRef(int rid, bool hasModule, uint moduleIndex)
+        public InlinerRef(MethodRid rid, bool hasModule, uint moduleIndex)
         {
             Rid = rid;
             HasModule = hasModule;

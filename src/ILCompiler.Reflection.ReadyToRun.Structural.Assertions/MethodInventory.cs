@@ -124,8 +124,9 @@ internal sealed class MethodInventory
         MethodDefEntryPointsTable table = reader.GetMethodDefEntryPointsTable(section);
         MetadataReader mdReader = resolver.GetMetadataReader(moduleIndex);
 
-        foreach ((int rowId, MethodDefEntry entry) in reader.EnumerateMethodDefEntryPoints(table))
+        foreach ((MethodRid methodRid, MethodDefEntry entry) in reader.EnumerateMethodDefEntryPoints(table))
         {
+            int rowId = (int)methodRid;
             string name = SafeFormatMethodDef(mdReader, rowId);
             bool isAsync = TryDetectAsyncAttribute(mdReader, rowId);
 

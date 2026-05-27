@@ -397,11 +397,11 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             foreach (InliningInfo2Entry entry in table.Entries)
             {
                 int inlineeModule = entry.InlineeHasModule ? (int)entry.InlineeModuleIndex : ownerModuleIndex;
-                string inlinee = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(inlineeModule), entry.InlineeRid);
+                string inlinee = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(inlineeModule), (int)entry.InlineeRid);
                 foreach (InlinerRef inlinerRef in entry.Inliners)
                 {
                     int inlinerModule = inlinerRef.HasModule ? (int)inlinerRef.ModuleIndex : ownerModuleIndex;
-                    string inliner = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(inlinerModule), inlinerRef.Rid);
+                    string inliner = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(inlinerModule), (int)inlinerRef.Rid);
                     yield return (inliner, inlinee);
                 }
             }

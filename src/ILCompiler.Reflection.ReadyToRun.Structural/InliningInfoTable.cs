@@ -84,9 +84,6 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
     }
 
-    /// <summary>Strong type for a MethodDef row ID (1-based).</summary>
-    public enum MethodRid {}
-
     /// <summary>Opaque handle to a nibble-encoded inliner RID list in the v1 InliningInfo section.</summary>
     public readonly struct InlinerListHandle
     {

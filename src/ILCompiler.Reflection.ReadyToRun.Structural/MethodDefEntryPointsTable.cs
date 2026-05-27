@@ -44,8 +44,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             return new MethodDefEntryPointsTable(entries);
         }
 
-        public bool TryGetMethodDefEntryPoint(MethodDefEntryPointsTable table, int rowId, out MethodDefEntry entry)
+        public bool TryGetMethodDefEntryPoint(MethodDefEntryPointsTable table, MethodRid methodRid, out MethodDefEntry entry)
         {
+            int rowId = (int)methodRid;
             if (rowId <= 0 || rowId > table.EntryCount)
             {
                 entry = null;
@@ -64,14 +65,14 @@ namespace System.Reflection.Metadata.ReadyToRun
             return true;
         }
 
-        public IEnumerable<(int RowId, MethodDefEntry Entry)> EnumerateMethodDefEntryPoints(MethodDefEntryPointsTable table)
+        public IEnumerable<(MethodRid MethodRid, MethodDefEntry Entry)> EnumerateMethodDefEntryPoints(MethodDefEntryPointsTable table)
         {
             NativeArray methodEntryPoints = GetNativeArray(table.Entries);
             for (int rowId = 1; rowId <= table.EntryCount; rowId++)
             {
                 int offset = 0;
                 if (methodEntryPoints.TryGetAt((uint)(rowId - 1), ref offset))
-                    yield return (rowId, DecodeMethodDefEntryPoint(offset));
+                    yield return ((MethodRid)rowId, DecodeMethodDefEntryPoint(offset));
             }
         }
 
