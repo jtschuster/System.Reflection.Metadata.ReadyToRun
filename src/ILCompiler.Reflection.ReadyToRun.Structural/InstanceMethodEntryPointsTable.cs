@@ -42,7 +42,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int signatureBlobOffset = (int)curParser.Offset;
                 byte lowHashcode = curParser.LowHashcode;
 
-                entries.Add(new InstanceMethodEntry(signatureBlobOffset, lowHashcode));
+                entries.Add(new InstanceMethodEntry((InstanceMethodPayloadOffset)signatureBlobOffset, lowHashcode));
                 curParser = enumerator.GetNext();
             }
 
@@ -56,7 +56,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public InstanceMethodPayload GetInstanceMethodPayload(InstanceMethodEntry entry)
         {
-            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, entry.SignatureBlobOffset, TargetPointerSize);
+            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, (int)entry.PayloadOffset, TargetPointerSize);
 
             int offset = signature.EndOffset;
             (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) = DecodeRuntimeFunctionIdAndFixupCellList(offset);
@@ -174,22 +174,30 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>
+    /// Opaque handle to the start of an <see cref="InstanceMethodEntry"/> payload
+    /// (a method signature blob immediately followed by entry-point and fixup data).
+    /// Pass to <see cref="ReadyToRunReader.GetInstanceMethodPayload(InstanceMethodEntry)"/> to decode.
+    /// The underlying value is the file offset (not RVA) of the payload start.
+    /// </summary>
+    public enum InstanceMethodPayloadOffset : uint { }
+
+    /// <summary>
     /// A single entry in the InstanceMethodEntryPoints hashtable.
-    /// Contains the offset of the signature blob for this generic method instantiation.
+    /// Contains a handle to the signature blob for this generic method instantiation.
     /// The signature must be decoded by a higher-level reader to extract the
     /// runtime function index and fixup cells.
     /// </summary>
     public sealed class InstanceMethodEntry
     {
-        /// <summary>File offset of the method signature blob.</summary>
-        public int SignatureBlobOffset { get; }
+        /// <summary>Handle to the entry's payload (method signature blob followed by entry-point data).</summary>
+        public InstanceMethodPayloadOffset PayloadOffset { get; }
 
         /// <summary>Low byte of the hash code used for hashtable bucketing.</summary>
         public byte LowHashcode { get; }
 
-        internal InstanceMethodEntry(int signatureBlobOffset, byte lowHashcode)
+        internal InstanceMethodEntry(InstanceMethodPayloadOffset payloadOffset, byte lowHashcode)
         {
-            SignatureBlobOffset = signatureBlobOffset;
+            PayloadOffset = payloadOffset;
             LowHashcode = lowHashcode;
         }
     }

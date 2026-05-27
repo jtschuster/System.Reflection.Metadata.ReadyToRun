@@ -42,7 +42,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int signatureBlobOffset = (int)curParser.Offset;
                 byte lowHashcode = curParser.LowHashcode;
 
-                entries.Add(new PgoEntry(signatureBlobOffset, lowHashcode));
+                entries.Add(new PgoEntry((PgoPayloadOffset)signatureBlobOffset, lowHashcode));
                 curParser = enumerator.GetNext();
             }
 
@@ -54,7 +54,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// the encoded versionAndFlags word and resolve the PGO data blob offset.
         /// </summary>
         /// <remarks>
-        /// Payload layout at <see cref="PgoEntry.SignatureBlobOffset"/>:
+        /// Payload layout at <see cref="PgoEntry.PayloadOffset"/>:
         /// method-signature || DecodeUnsigned(versionAndFlags) || (optional back-reference) || pgo-data-blob.
         /// The low 2 bits of <c>versionAndFlags</c> are the tag:
         /// <list type="bullet">
@@ -69,7 +69,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </remarks>
         public PgoPayload GetPgoPayload(PgoEntry entry)
         {
-            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, entry.SignatureBlobOffset, TargetPointerSize);
+            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, (int)entry.PayloadOffset, TargetPointerSize);
 
             int offset = signature.EndOffset;
             uint versionAndFlags = 0;
@@ -98,21 +98,29 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>
+    /// Opaque handle to the start of a <see cref="PgoEntry"/> payload
+    /// (a method signature blob immediately followed by versionAndFlags and PGO data).
+    /// Pass to <see cref="ReadyToRunReader.GetPgoPayload(PgoEntry)"/> to decode.
+    /// The underlying value is the file offset (not RVA) of the payload start.
+    /// </summary>
+    public enum PgoPayloadOffset : uint { }
+
+    /// <summary>
     /// A single entry in the PgoInstrumentationData hashtable.
-    /// Holds only the signature blob offset and bucketing hash; use
+    /// Holds a handle to the payload and the bucketing hash; use
     /// <see cref="ReadyToRunReader.GetPgoPayload(PgoEntry)"/> to decode the rest.
     /// </summary>
     public sealed class PgoEntry
     {
-        /// <summary>File offset of the method signature blob (the entry's payload start).</summary>
-        public int SignatureBlobOffset { get; }
+        /// <summary>Handle to the entry's payload (method signature blob followed by PGO data).</summary>
+        public PgoPayloadOffset PayloadOffset { get; }
 
         /// <summary>Low byte of the hash code used for hashtable bucketing.</summary>
         public byte LowHashcode { get; }
 
-        internal PgoEntry(int signatureBlobOffset, byte lowHashcode)
+        internal PgoEntry(PgoPayloadOffset payloadOffset, byte lowHashcode)
         {
-            SignatureBlobOffset = signatureBlobOffset;
+            PayloadOffset = payloadOffset;
             LowHashcode = lowHashcode;
         }
     }

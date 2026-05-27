@@ -70,7 +70,12 @@ namespace System.Reflection.Metadata.ReadyToRun
             IsExportedType = isExportedType;
         }
 
-        public EntityHandle GetMetadataToken()
+        /// <summary>
+        /// Returns the metadata <see cref="EntityHandle"/> for this entry:
+        /// a <see cref="TypeDefinitionHandle"/> when <see cref="IsExportedType"/> is false,
+        /// otherwise an <see cref="ExportedTypeHandle"/>.
+        /// </summary>
+        public EntityHandle GetEntityHandle()
         {
             return IsExportedType ? MetadataTokens.ExportedTypeHandle((int)Rid) : MetadataTokens.TypeDefinitionHandle((int)Rid);
         }
