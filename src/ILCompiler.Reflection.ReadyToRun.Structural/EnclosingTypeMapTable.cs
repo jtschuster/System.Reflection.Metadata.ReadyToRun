@@ -16,24 +16,12 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Number of TypeDef entries in the map.</summary>
         public int Count { get; }
 
-        private readonly ushort[] _enclosingTypeRids;
+        internal ushort[] EnclosingTypeRids { get; }
 
         internal EnclosingTypeMapTable(int count, ushort[] enclosingTypeRids)
         {
             Count = count;
-            _enclosingTypeRids = enclosingTypeRids;
-        }
-
-        /// <summary>
-        /// Returns the enclosing type RID for the TypeDef at the given 1-based RID.
-        /// Returns 0 if the type is not nested.
-        /// </summary>
-        public int GetEnclosingTypeRid(int typeDefRid)
-        {
-            if (typeDefRid < 1 || typeDefRid > Count)
-                return 0;
-
-            return _enclosingTypeRids[typeDefRid - 1];
+            EnclosingTypeRids = enclosingTypeRids;
         }
     }
 
@@ -49,6 +37,18 @@ namespace System.Reflection.Metadata.ReadyToRun
                 rids[i] = _nativeReader.ReadUInt16(ref offset);
 
             return new EnclosingTypeMapTable(count, rids);
+        }
+
+        /// <summary>
+        /// Returns the enclosing type RID for the TypeDef at the given 1-based RID.
+        /// Returns 0 if the type is not nested or the RID is out of range.
+        /// </summary>
+        public int GetEnclosingTypeRid(EnclosingTypeMapTable table, int typeDefRid)
+        {
+            if (typeDefRid < 1 || typeDefRid > table.Count)
+                return 0;
+
+            return table.EnclosingTypeRids[typeDefRid - 1];
         }
     }
 }

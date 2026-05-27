@@ -17,26 +17,12 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Total number of method entries in the map.</summary>
         public int Count { get; }
 
-        private readonly byte[] _data;
+        internal byte[] Data { get; }
 
         internal MethodIsGenericMapTable(int count, byte[] data)
         {
             Count = count;
-            _data = data;
-        }
-
-        /// <summary>
-        /// Returns whether the MethodDef at the given 1-based RID is generic.
-        /// </summary>
-        public bool IsGeneric(int rid)
-        {
-            if (rid < 1 || rid > Count)
-                return false;
-
-            int index = rid - 1;
-            int byteIndex = index / 8;
-            int bitIndex = index % 8;
-            return (_data[byteIndex] & (1 << (7 - bitIndex))) != 0;
+            Data = data;
         }
     }
 
@@ -53,6 +39,22 @@ namespace System.Reflection.Metadata.ReadyToRun
                 data[i] = _nativeReader.ReadByte(ref offset);
 
             return new MethodIsGenericMapTable(count, data);
+        }
+
+        /// <summary>
+        /// Returns whether the MethodDef at the given 1-based RID is generic.
+        /// Returns false if the RID is out of range.
+        /// </summary>
+        public bool IsMethodGeneric(MethodIsGenericMapTable table, MethodRid methodRid)
+        {
+            int rid = (int)methodRid;
+            if (rid < 1 || rid > table.Count)
+                return false;
+
+            int index = rid - 1;
+            int byteIndex = index / 8;
+            int bitIndex = index % 8;
+            return (table.Data[byteIndex] & (1 << (7 - bitIndex))) != 0;
         }
     }
 }
