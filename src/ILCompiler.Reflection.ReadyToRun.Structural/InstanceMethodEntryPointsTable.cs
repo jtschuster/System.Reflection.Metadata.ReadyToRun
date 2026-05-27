@@ -57,11 +57,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         public InstanceMethodPayload GetInstanceMethodPayload(InstanceMethodEntry entry)
         {
             R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, entry.SignatureBlobOffset, TargetPointerSize);
-            MethodSignature method = MethodSignature.FromSignature(signature.Signature);
 
             int offset = signature.EndOffset;
             (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) = DecodeRuntimeFunctionIdAndFixupCellList(offset);
-            return new InstanceMethodPayload(method, runtimeFunctionIndex, fixupCellListHandle);
+            return new InstanceMethodPayload(signature.Signature, runtimeFunctionIndex, fixupCellListHandle);
         }
 
         /// <summary>
@@ -143,13 +142,14 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </summary>
     public sealed class InstanceMethodPayload
     {
-        public MethodSignature Method { get; }
+        /// <summary>Raw method signature parts decoded from the start of the entry payload.</summary>
+        public R2RSignature MethodSignature { get; }
         public RuntimeFunctionIndex EntryPointIndex { get; }
         public FixupCellListHandle? FixupCellListHandle { get; }
 
-        public InstanceMethodPayload(MethodSignature method, RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
+        public InstanceMethodPayload(R2RSignature methodSignature, RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
         {
-            Method = method;
+            MethodSignature = methodSignature;
             EntryPointIndex = entryPointIndex;
             FixupCellListHandle = fixupCellListHandle;
         }

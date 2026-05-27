@@ -219,7 +219,7 @@ internal sealed class MethodInventory
                 continue;
             }
 
-            MethodSignature methodSig = payload.Method;
+            MethodSignature methodSig = MethodSignature.FromSignature(payload.MethodSignature);
             int ownerModule = methodSig.ModuleIndex >= 0 ? methodSig.ModuleIndex : 0;
             string name = FormatMethodFromSignature(methodSig, resolver);
             bool isAsync = methodSig.Flags.HasFlag(ReadyToRunMethodSigFlags.READYTORUN_METHOD_SIG_AsyncVariant);
