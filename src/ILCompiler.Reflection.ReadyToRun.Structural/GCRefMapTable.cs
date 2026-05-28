@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections;
 using System.Collections.Generic;
 using System.Reflection.PortableExecutable;
 
@@ -70,20 +69,15 @@ public sealed class GCRefMap
 /// <remarks>
 /// Crossgen2 emitter: <c>GCRefMapNode (one per ImportSectionNode that requests a GC ref map)</c>.
 /// </remarks>
-public sealed class GCRefMapTable : IEnumerable<GCRefMap>
+public sealed class GCRefMapTable
 {
-    private readonly IReadOnlyList<GCRefMap> _entries;
+    /// <summary>GC reference maps in this table, one per slot in the owning import section.</summary>
+    public IReadOnlyList<GCRefMap> Entries { get; }
 
     internal GCRefMapTable(IReadOnlyList<GCRefMap> entries)
     {
-        _entries = entries;
+        Entries = entries;
     }
-
-    public int Count => _entries.Count;
-
-    public IEnumerator<GCRefMap> GetEnumerator() => _entries.GetEnumerator();
-
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
 public partial class ReadyToRunReader
