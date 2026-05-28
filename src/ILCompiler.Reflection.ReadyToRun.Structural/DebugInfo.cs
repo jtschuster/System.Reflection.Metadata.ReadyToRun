@@ -36,7 +36,7 @@ public sealed class DebugInfo
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<DebugInfoHandle, DebugInfo> _debugInfoCache = new Dictionary<DebugInfoHandle, DebugInfo>();
+    private Dictionary<DebugInfoOffset, DebugInfo> _debugInfoCache = new Dictionary<DebugInfoOffset, DebugInfo>();
 
     /// <summary>
     /// Parse debug information from an R2R image at the given file offset.
@@ -47,7 +47,7 @@ public partial class ReadyToRunReader
     /// <param name="majorVersion">R2R header major version (affects encoding format).</param>
     /// <param name="offset">File offset pointing into the debug info NativeArray.</param>
     /// <returns>Parsed debug info, or null if parsing fails.</returns>
-    public DebugInfo GetDebugInfo(DebugInfoHandle offset)
+    public DebugInfo GetDebugInfo(DebugInfoOffset offset)
     {
         if (_debugInfoCache.TryGetValue(offset, out DebugInfo cached))
         {

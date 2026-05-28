@@ -68,5 +68,5 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// This names the value separately from <see cref="PCode"/> because the section header
     /// entry is not a target code pointer.
     /// </summary>
-    public enum DelayLoadMethodThunkRva {}
+    public enum DelayLoadMethodThunkRva : uint {}
 }

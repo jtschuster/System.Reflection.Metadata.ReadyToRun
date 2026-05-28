@@ -40,7 +40,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 CodeRva? endRva = null;
                 if (isAmd64)
                     endRva = (CodeRva)_nativeReader.ReadInt32(ref offset);
-                var unwindRva = (UnwindInfoHandle)_nativeReader.ReadInt32(ref offset);
+                var unwindRva = (UnwindInfoRva)_nativeReader.ReadInt32(ref offset);
                 entries.Add(new RuntimeFunctionEntry(startPCode, endRva, unwindRva));
             }
 
@@ -73,9 +73,9 @@ namespace System.Reflection.Metadata.ReadyToRun
         public CodeRva? EndRva { get; }
 
         /// <summary>RVA of the unwind information.</summary>
-        public UnwindInfoHandle UnwindRva { get; }
+        public UnwindInfoRva UnwindRva { get; }
 
-        internal RuntimeFunctionEntry(PCode startPCode, CodeRva? endRva, UnwindInfoHandle unwindRva)
+        internal RuntimeFunctionEntry(PCode startPCode, CodeRva? endRva, UnwindInfoRva unwindRva)
         {
             StartPCode = startPCode;
             EndRva = endRva;
@@ -91,8 +91,8 @@ namespace System.Reflection.Metadata.ReadyToRun
     public enum PCode {}
 
     /// <summary>Opaque handle representing an RVA pointing to code in the image.</summary>
-    public enum CodeRva {}
+    public enum CodeRva : uint {}
 
     /// <summary>Opaque handle representing an RVA pointing to unwind information.</summary>
-    public enum UnwindInfoHandle {}
+    public enum UnwindInfoRva : uint {}
 }

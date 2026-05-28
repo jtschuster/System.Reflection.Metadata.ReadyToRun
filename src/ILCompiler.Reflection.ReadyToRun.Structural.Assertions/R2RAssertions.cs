@@ -357,7 +357,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
                             foreach (InliningInfoEntry e in table.Entries)
                             {
                                 string inlinee = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(0), (int)e.InlineeRid);
-                                foreach (MethodRid inlinerRid in _reader.GetInliners(e.InlinersHandle))
+                                foreach (MethodRid inlinerRid in _reader.GetInliners(e.InlinersOffset))
                                 {
                                     string inliner = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(0), (int)inlinerRid);
                                     yield return (inliner, inlinee);

@@ -69,16 +69,16 @@ namespace System.Reflection.Metadata.ReadyToRun
 {
     public partial class ReadyToRunReader
     {
-        private readonly Dictionary<EHInfoHandle, EHInfo> _ehInfoCache = new();
+        private readonly Dictionary<EHInfoRva, EHInfo> _ehInfoCache = new();
 
         /// <summary>
-        /// Resolve an <see cref="EHInfoHandle"/> to its parsed exception handling information.
+        /// Resolve an <see cref="EHInfoRva"/> to its parsed exception handling information.
         /// The clause count is derived from the byte distance between consecutive EH info RVAs,
         /// so the caller must supply the byte length of the EH info region for this entry.
         /// </summary>
         /// <param name="handle">Handle pointing to the EH info RVA.</param>
         /// <param name="ehInfoByteLength">Byte length of the EH info region (distance to next entry or section end).</param>
-        public EHInfo GetEHInfo(EHInfoHandle handle, int ehInfoByteLength)
+        public EHInfo GetEHInfo(EHInfoRva handle, int ehInfoByteLength)
         {
             if (_ehInfoCache.TryGetValue(handle, out EHInfo cached))
                 return cached;

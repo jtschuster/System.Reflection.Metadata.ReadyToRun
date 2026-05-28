@@ -65,7 +65,7 @@ public sealed class GCRefMap
 /// <summary>
 /// A table of GC reference maps decoded from the auxiliary data of an import section.
 /// Contains one <see cref="GCRefMap"/> per slot in the owning import section.
-/// Obtained via <see cref="ReadyToRunReader.GetGCRefMapTable(AuxiliaryDataTableHandle, int, Machine)"/>.
+/// Obtained via <see cref="ReadyToRunReader.GetGCRefMapTable(AuxiliaryDataTableRva, int, Machine)"/>.
 /// </summary>
 /// <remarks>
 /// Crossgen2 emitter: <c>GCRefMapNode (one per ImportSectionNode that requests a GC ref map)</c>.
@@ -88,19 +88,19 @@ public sealed class GCRefMapTable : IEnumerable<GCRefMap>
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<AuxiliaryDataTableHandle, GCRefMapTable> _gcRefMapTableCache;
+    private Dictionary<AuxiliaryDataTableRva, GCRefMapTable> _gcRefMapTableCache;
 
     /// <summary>
     /// Decode the GC reference map table at the given auxiliary data handle.
     /// </summary>
     /// <param name="handle">Handle from <see cref="ImportSectionEntry.AuxiliaryDataRva"/>.</param>
     /// <param name="entryCount">Number of slots in the owning import section.</param>
-    public GCRefMapTable GetGCRefMapTable(AuxiliaryDataTableHandle handle, int entryCount)
+    public GCRefMapTable GetGCRefMapTable(AuxiliaryDataTableRva handle, int entryCount)
     {
         if ((int)handle == 0 || entryCount <= 0)
             return null;
 
-        _gcRefMapTableCache ??= new Dictionary<AuxiliaryDataTableHandle, GCRefMapTable>();
+        _gcRefMapTableCache ??= new Dictionary<AuxiliaryDataTableRva, GCRefMapTable>();
 
         if (_gcRefMapTableCache.TryGetValue(handle, out GCRefMapTable cached))
             return cached;

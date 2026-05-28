@@ -8,5 +8,5 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// Cast to/from <see cref="int"/> as needed when interoperating with
     /// <see cref="System.Reflection.Metadata.MetadataReader"/> APIs.
     /// </summary>
-    public enum MethodRid {}
+    public enum MethodRid : uint {}
 }

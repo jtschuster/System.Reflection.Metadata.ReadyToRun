@@ -126,5 +126,5 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>Opaque handle representing an index into the RuntimeFunctions table.</summary>
-    public enum RuntimeFunctionIndex {}
+    public enum RuntimeFunctionIndex : uint {}
 }

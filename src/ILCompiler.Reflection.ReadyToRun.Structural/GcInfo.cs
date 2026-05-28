@@ -9,10 +9,10 @@ namespace System.Reflection.Metadata.ReadyToRun;
 
 public partial class ReadyToRunReader
 {
-    private readonly Dictionary<UnwindInfoHandle, BaseGcInfo> _gcInfoCache = new();
+    private readonly Dictionary<UnwindInfoRva, BaseGcInfo> _gcInfoCache = new();
 
     /// <summary>
-    /// Resolve GC info for a runtime function identified by its <see cref="UnwindInfoHandle"/>.
+    /// Resolve GC info for a runtime function identified by its <see cref="UnwindInfoRva"/>.
     /// GC info sits immediately after the unwind info in the image:
     /// - On I386: GcInfo offset == UnwindInfo offset (same location).
     /// - On other architectures: GcInfo offset == UnwindInfo offset + UnwindInfo.Size.
@@ -20,7 +20,7 @@ public partial class ReadyToRunReader
     /// <remarks>
     /// Crossgen2 emitter: per-method GC info blob attached to <c>MethodWithGCInfo</c> and aggregated by <c>RuntimeFunctionsGCInfoNode</c>.
     /// </remarks>
-    public BaseGcInfo GetGcInfo(UnwindInfoHandle handle)
+    public BaseGcInfo GetGcInfo(UnwindInfoRva handle)
     {
         if (_gcInfoCache.TryGetValue(handle, out BaseGcInfo cached))
             return cached;

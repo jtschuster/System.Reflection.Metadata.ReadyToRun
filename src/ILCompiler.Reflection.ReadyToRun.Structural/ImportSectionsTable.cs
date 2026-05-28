@@ -32,7 +32,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     public sealed class ImportSectionEntry
     {
         /// <summary>RVA of the section containing values to be fixed up.</summary>
-        public ImportSlotTableHandle SectionRva { get; }
+        public ImportSlotTableRva SectionRva { get; }
 
         /// <summary>Size of the section in bytes.</summary>
         public int SectionSize { get; }
@@ -47,19 +47,19 @@ namespace System.Reflection.Metadata.ReadyToRun
         public byte EncodedEntrySize { get; }
 
         /// <summary>RVA of the signature indirection table for this section.</summary>
-        public SignatureTableHandle SignatureTableRva { get; }
+        public SignatureTableRva SignatureTableRva { get; }
 
         /// <summary>RVA of optional auxiliary data (typically GC info).</summary>
-        public AuxiliaryDataTableHandle AuxiliaryDataRva { get; }
+        public AuxiliaryDataTableRva AuxiliaryDataRva { get; }
 
         internal ImportSectionEntry(
-            ImportSlotTableHandle sectionRva,
+            ImportSlotTableRva sectionRva,
             int sectionSize,
             ReadyToRunImportSectionFlags flags,
             ReadyToRunImportSectionType type,
             byte encodedEntrySize,
-            SignatureTableHandle signatureTableRva,
-            AuxiliaryDataTableHandle auxiliaryDataRva)
+            SignatureTableRva signatureTableRva,
+            AuxiliaryDataTableRva auxiliaryDataRva)
         {
             SectionRva = sectionRva;
             SectionSize = sectionSize;
@@ -91,13 +91,13 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int auxiliaryDataRva = this.ImageReader.ReadInt32(ref offset);
 
                 entries.Add(new ImportSectionEntry(
-                    (ImportSlotTableHandle)sectionRva,
+                    (ImportSlotTableRva)sectionRva,
                     sectionSize,
                     flags,
                     type,
                     encodedEntrySize,
-                    (SignatureTableHandle)signatureRva,
-                    (AuxiliaryDataTableHandle)auxiliaryDataRva));
+                    (SignatureTableRva)signatureRva,
+                    (AuxiliaryDataTableRva)auxiliaryDataRva));
             }
 
             return new ImportSectionsTableSection(entries);
@@ -122,8 +122,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
     }
 
-    public enum SignatureHandle {}
-    public enum SignatureTableHandle {}
-    public enum ImportSlotTableHandle {}
-    public enum AuxiliaryDataTableHandle {}
+    public enum SignatureRva : uint {}
+    public enum SignatureTableRva : uint {}
+    public enum ImportSlotTableRva : uint {}
+    public enum AuxiliaryDataTableRva : uint {}
 }

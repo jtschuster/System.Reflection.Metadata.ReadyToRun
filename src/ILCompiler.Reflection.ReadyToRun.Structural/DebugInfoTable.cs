@@ -37,7 +37,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int offset = default;
                 if (debugInfoArray.TryGetAt(i, ref offset))
                 {
-                    entries.Add(new DebugInfoEntry((DebugInfoHandle)offset));
+                    entries.Add(new DebugInfoEntry((DebugInfoOffset)offset));
                 }
             }
 
@@ -51,13 +51,13 @@ namespace System.Reflection.Metadata.ReadyToRun
     public sealed class DebugInfoEntry
     {
         /// <summary>File offset of the debug info data.</summary>
-        public DebugInfoHandle DebugInfoOffset { get; }
+        public DebugInfoOffset DebugInfoOffset { get; }
 
-        internal DebugInfoEntry(DebugInfoHandle debugInfoOffset)
+        internal DebugInfoEntry(DebugInfoOffset debugInfoOffset)
         {
             DebugInfoOffset = debugInfoOffset;
         }
     }
 
-    public enum DebugInfoHandle {}
+    public enum DebugInfoOffset : uint {}
 }

@@ -6,16 +6,16 @@ using System.Collections.Generic;
 namespace System.Reflection.Metadata.ReadyToRun;
 
 /// <summary>
-/// A decoded signature indirection table: a flat array of <see cref="SignatureHandle"/> values,
+/// A decoded signature indirection table: a flat array of <see cref="SignatureRva"/> values,
 /// one per import slot in the owning import section.
-/// Obtained via <see cref="ReadyToRunReader.GetSignatureTable(SignatureTableHandle, int)"/>.
+/// Obtained via <see cref="ReadyToRunReader.GetSignatureTable(SignatureTableRva, int)"/>.
 /// </summary>
 public sealed class SignatureTable
 {
     /// <summary>Per-slot signature handles. Index corresponds to slot index in the import section.</summary>
-    public IReadOnlyList<SignatureHandle> Entries { get; }
+    public IReadOnlyList<SignatureRva> Entries { get; }
 
-    internal SignatureTable(IReadOnlyList<SignatureHandle> entries)
+    internal SignatureTable(IReadOnlyList<SignatureRva> entries)
     {
         Entries = entries;
     }
@@ -23,31 +23,31 @@ public sealed class SignatureTable
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<SignatureTableHandle, SignatureTable> _signatureTableCache;
+    private Dictionary<SignatureTableRva, SignatureTable> _signatureTableCache;
 
     /// <summary>
-    /// Decode a signature indirection table into per-slot <see cref="SignatureHandle"/> values.
+    /// Decode a signature indirection table into per-slot <see cref="SignatureRva"/> values.
     /// </summary>
     /// <param name="handle">Handle to the signature table (from <see cref="ImportSectionEntry.SignatureTableRva"/>).</param>
     /// <param name="entryCount">Number of slots in the owning import section.</param>
-    public SignatureTable GetSignatureTable(SignatureTableHandle handle, int entryCount)
+    public SignatureTable GetSignatureTable(SignatureTableRva handle, int entryCount)
     {
         if ((int)handle == 0 || entryCount <= 0)
             return null;
 
-        _signatureTableCache ??= new Dictionary<SignatureTableHandle, SignatureTable>();
+        _signatureTableCache ??= new Dictionary<SignatureTableRva, SignatureTable>();
 
         if (_signatureTableCache.TryGetValue(handle, out SignatureTable cached))
             return cached;
 
         int tableOffset = GetOffsetForRVA((int)handle);
-        var entries = new SignatureHandle[entryCount];
+        var entries = new SignatureRva[entryCount];
 
         for (int i = 0; i < entryCount; i++)
         {
             int slotOffset = tableOffset + i * sizeof(int);
             int sigRva = (int)_nativeReader.ReadUInt32(ref slotOffset);
-            entries[i] = (SignatureHandle)sigRva;
+            entries[i] = (SignatureRva)sigRva;
         }
 
         var table = new SignatureTable(entries);

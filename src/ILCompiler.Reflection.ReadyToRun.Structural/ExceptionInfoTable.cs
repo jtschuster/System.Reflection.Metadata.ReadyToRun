@@ -39,7 +39,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             for (int i = 0; i < realEntries; i++)
             {
                 var methodRva = (CodeRva)_nativeReader.ReadInt32(ref offset);
-                var ehInfoRva = (EHInfoHandle)_nativeReader.ReadInt32(ref offset);
+                var ehInfoRva = (EHInfoRva)_nativeReader.ReadInt32(ref offset);
                 entries.Add(new ExceptionInfoEntry(methodRva, ehInfoRva));
             }
 
@@ -57,9 +57,9 @@ namespace System.Reflection.Metadata.ReadyToRun
         public CodeRva MethodRva { get; }
 
         /// <summary>RVA of the exception handling info.</summary>
-        public EHInfoHandle EhInfoRva { get; }
+        public EHInfoRva EhInfoRva { get; }
 
-        internal ExceptionInfoEntry(CodeRva methodRva, EHInfoHandle ehInfoRva)
+        internal ExceptionInfoEntry(CodeRva methodRva, EHInfoRva ehInfoRva)
         {
             MethodRva = methodRva;
             EhInfoRva = ehInfoRva;
@@ -67,5 +67,5 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>Opaque handle representing an RVA pointing to exception handling information.</summary>
-    public enum EHInfoHandle {}
+    public enum EHInfoRva : uint {}
 }
