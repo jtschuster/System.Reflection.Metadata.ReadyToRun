@@ -205,7 +205,7 @@ internal sealed class MethodInventory
         IReadOnlyList<ImportSectionSignatures> importSections,
         List<MethodInventoryEntry> output)
     {
-        InstanceMethodEntryPointsTable table = reader.GetInstanceMethodEntryPointsTable(section);
+        InstanceMethodEntryPointsTable table = reader.GetInstanceMethodEntryPointsHashTable(section);
 
         foreach (InstanceMethodEntry entry in table.Entries)
         {

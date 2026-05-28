@@ -28,8 +28,43 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
-        public InstanceMethodEntryPointsTable GetInstanceMethodEntryPointsTable(ReadyToRunSection section)
+        /// <summary>
+        /// Look up an instance-method entry by version-resilient hashcode and signature predicate.
+        /// Mirrors the runtime VM's pattern of probing the NativeHashtable bucket for entries with
+        /// a matching low-byte hash, decoding each candidate's signature, and asking the caller's
+        /// predicate to confirm the full match (signature equality is decided by the caller because
+        /// only it knows the original key being resolved).
+        /// </summary>
+        /// <returns>The decoded payload for the first matching entry, or <c>null</c> if no entry matches.</returns>
+        public InstanceMethodPayload LookupInstanceMethodEntryPoint(ReadyToRunSection section, int versionResilientHash, Func<MethodSignature, bool> predicate)
         {
+            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
+            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
+            NativeHashtable.Enumerator enumerator = hashtable.Lookup(versionResilientHash);
+
+            NativeParser entryParser = enumerator.GetNext();
+            while (!entryParser.IsNull())
+            {
+                int payloadOffset = (int)entryParser.Offset;
+                R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize);
+                MethodSignature methodSig = MethodSignature.FromSignature(signature.Signature);
+                if (predicate(methodSig))
+                {
+                    (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) = DecodeRuntimeFunctionIdAndFixupCellList(signature.EndOffset);
+                    return new InstanceMethodPayload(signature.Signature, runtimeFunctionIndex, fixupCellListHandle);
+                }
+                entryParser = enumerator.GetNext();
+            }
+
+            return null;
+        }
+
+        public InstanceMethodEntryPointsTable GetInstanceMethodEntryPointsHashTable(ReadyToRunSection section)
+        {
+            if (section.Type != Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints)
+                throw new InvalidOperationException();
+
             int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
             NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
             NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));

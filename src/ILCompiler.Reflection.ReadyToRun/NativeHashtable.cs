@@ -148,10 +148,20 @@ namespace System.Reflection.Metadata.ReadyToRun
             return sb.ToString();
         }
 
-        //
-        // The enumerator does not conform to the regular C# enumerator pattern to avoid paying
-        // its performance penalty (allocation, multiple calls per iteration)
-        //
+        /// <summary>
+        /// Enumerates candidate matches for a hashcode lookup within a <em>single</em> hash bucket.
+        /// <see cref="NativeHashtable.Lookup(int)"/> selects the bucket from the upper bits of the
+        /// hashcode, and this enumerator walks that one bucket looking for entries whose low
+        /// hashcode byte matches the lookup target. Bucket entries are sorted by low hashcode,
+        /// so the scan terminates as soon as it passes the target.
+        ///
+        /// Multiple matches per bucket are normal because the low byte is only an 8-bit probe
+        /// filter; the caller must verify the full key against each entry returned by
+        /// <see cref="GetNext"/>.
+        ///
+        /// The enumerator does not conform to the regular C# enumerator pattern to avoid paying
+        /// its performance penalty (allocation, multiple calls per iteration).
+        /// </summary>
         public struct Enumerator
         {
             private NativeParser _parser;
@@ -163,6 +173,42 @@ namespace System.Reflection.Metadata.ReadyToRun
                 _parser = parser;
                 _endOffset = endOffset;
                 _lowHashcode = lowHashcode;
+            }
+
+            /// <summary>
+            /// Advance to the next bucket entry whose low hashcode byte matches the looked-up
+            /// hashcode. Returns a parser positioned at that entry's payload, or a null parser
+            /// when no more matches are available. Multiple matches are possible (low-byte hash
+            /// collisions within the bucket); the caller must verify the full key against each
+            /// returned entry.
+            /// </summary>
+            public NativeParser GetNext()
+            {
+                while (_parser.Offset < _endOffset)
+                {
+                    uint entryStart = _parser.Offset;
+                    byte lowHashcode = _parser.GetByte();
+
+                    if (lowHashcode == _lowHashcode)
+                    {
+                        // Rewind so GetParserFromRelativeOffset re-reads the byte and the
+                        // signed delta, returning a parser at the entry's payload.
+                        _parser.Offset = entryStart;
+                        return _parser.GetParserFromRelativeOffset();
+                    }
+
+                    // The entries are sorted by low hashcode within the bucket, so once we
+                    // see a higher value we can terminate the scan early.
+                    if (lowHashcode > _lowHashcode)
+                    {
+                        _endOffset = _parser.Offset;
+                        break;
+                    }
+
+                    // Skip past the signed relative-offset integer for this non-matching entry.
+                    _parser.GetSigned();
+                }
+                return default;
             }
         }
 
@@ -225,6 +271,17 @@ namespace System.Reflection.Metadata.ReadyToRun
             return new NativeParser(_imageReader, _baseOffset + start);
         }
 
+        /// <summary>
+        /// Begin a hashcode lookup. Selects the single hash bucket addressed by the upper bits
+        /// of <paramref name="hashcode"/> (<c>(hashcode &gt;&gt; 8) &amp; bucketMask</c>) and
+        /// returns an <see cref="Enumerator"/> that walks <em>only that bucket</em>, yielding
+        /// entries whose stored low hashcode byte equals <c>(byte)hashcode</c>.
+        ///
+        /// Because the low byte is just an 8-bit probe filter, multiple matches may be returned
+        /// from the same bucket; the caller is responsible for verifying the full key against
+        /// each candidate. Entries whose full hashcode falls in a different bucket are never
+        /// considered.
+        /// </summary>
         public Enumerator Lookup(int hashcode)
         {
             uint endOffset;
