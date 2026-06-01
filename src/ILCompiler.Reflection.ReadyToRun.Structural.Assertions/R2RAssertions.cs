@@ -74,12 +74,17 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
         {
             bool isMachO = imageBytes.Length >= 4
                 && imageBytes[0] == 0xCF && imageBytes[1] == 0xFA && imageBytes[2] == 0xED && imageBytes[3] == 0xFE;
+            bool isWebcil = !isMachO && Webcil.WebcilImageReader.IsWebcilImage(imageBytes);
 
             PEReader peReader = null;
             IPlatformBinaryReader imageReader;
             if (isMachO)
             {
                 imageReader = new MachO.MachOImageReader(imageBytes);
+            }
+            else if (isWebcil)
+            {
+                imageReader = new Webcil.WebcilImageReader(imageBytes);
             }
             else
             {

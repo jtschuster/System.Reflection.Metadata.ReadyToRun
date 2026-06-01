@@ -81,6 +81,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 {
                     Machine.I386 or Machine.Arm or Machine.Thumb or Machine.ArmThumb2 => 4,
                     Machine.Amd64 or Machine.Arm64 or Machine.LoongArch64 or Machine.RiscV64 => 8,
+                    WasmMachine.Wasm32 => 4,
                     _ => throw new NotImplementedException(Machine.ToString()),
                 };
             }
