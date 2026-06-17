@@ -8,26 +8,47 @@ using System.Diagnostics.CodeAnalysis;
 namespace System.Reflection.Metadata.ReadyToRun
 {
     /// <summary>
-    /// Structural projection of the InstanceMethodEntryPoints section.
-    /// A NativeHashtable where each entry contains a signature blob offset,
-    /// runtime function index, and optional fixup cells.
-    /// No signature decoding is performed.
+    /// Structural projection of the InstanceMethodEntryPoints section: a NativeHashtable keyed by
+    /// version-resilient method hashcode. Entries are not eagerly decoded; resolve through the
+    /// reader with <see cref="ReadyToRunReader.LookupInstanceMethodEntryPoint"/> for a keyed probe
+    /// or <see cref="ReadyToRunReader.EnumerateInstanceMethodEntries"/> for a full scan.
     /// </summary>
     /// <remarks>
     /// Crossgen2 emitter: <c>InstanceEntryPointTableNode</c>.
     /// </remarks>
     public sealed class InstanceMethodEntryPointsTable
     {
-        public IReadOnlyList<InstanceMethodEntry> Entries { get; }
+        internal ImageRVA SectionRva { get; }
+        internal int SectionSize { get; }
 
-        internal InstanceMethodEntryPointsTable(List<InstanceMethodEntry> entries)
+        internal InstanceMethodEntryPointsTable(ImageRVA sectionRva, int sectionSize)
         {
-            Entries = entries;
+            SectionRva = sectionRva;
+            SectionSize = sectionSize;
         }
     }
 
     public partial class ReadyToRunReader
     {
+        /// <summary>
+        /// Open the InstanceMethodEntryPoints section as an inert table that can be used for
+        /// keyed lookups or full enumeration without eagerly decoding every entry.
+        /// </summary>
+        public InstanceMethodEntryPointsTable GetInstanceMethodEntryPointsTable(ReadyToRunSection section)
+        {
+            if (section.Type != Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints)
+                throw new InvalidOperationException();
+
+            return new InstanceMethodEntryPointsTable(section.RelativeVirtualAddress, section.Size);
+        }
+
+        private NativeHashtable OpenInstanceMethodEntryPointsHashtable(InstanceMethodEntryPointsTable table)
+        {
+            int sectionOffset = GetOffsetForRVA(table.SectionRva);
+            NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
+            return new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + table.SectionSize));
+        }
+
         /// <summary>
         /// Look up an instance-method entry by version-resilient hashcode and signature predicate.
         /// Mirrors the runtime VM's pattern of probing the NativeHashtable bucket for entries with
@@ -36,11 +57,9 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// only it knows the original key being resolved).
         /// </summary>
         /// <returns>The decoded payload for the first matching entry, or <c>null</c> if no entry matches.</returns>
-        public InstanceMethodPayload LookupInstanceMethodEntryPoint(ReadyToRunSection section, int versionResilientHash, Func<MethodSignature, bool> predicate)
+        public InstanceMethodPayload LookupInstanceMethodEntryPoint(InstanceMethodEntryPointsTable table, int versionResilientHash, Func<MethodSignature, bool> predicate)
         {
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
+            NativeHashtable hashtable = OpenInstanceMethodEntryPointsHashtable(table);
             NativeHashtable.Enumerator enumerator = hashtable.Lookup(versionResilientHash);
 
             NativeParser entryParser = enumerator.GetNext();
@@ -60,28 +79,21 @@ namespace System.Reflection.Metadata.ReadyToRun
             return null;
         }
 
-        public InstanceMethodEntryPointsTable GetInstanceMethodEntryPointsHashTable(ReadyToRunSection section)
+        /// <summary>
+        /// Lazily enumerate every entry in the InstanceMethodEntryPoints hashtable. Each yielded
+        /// <see cref="InstanceMethodEntry"/> carries only a payload offset and a low hashcode byte;
+        /// call <see cref="GetInstanceMethodPayload(InstanceMethodEntry)"/> to decode the signature
+        /// and entry-point data on demand.
+        /// </summary>
+        public IEnumerable<InstanceMethodEntry> EnumerateInstanceMethodEntries(InstanceMethodEntryPointsTable table)
         {
-            if (section.Type != Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints)
-                throw new InvalidOperationException();
-
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
+            NativeHashtable hashtable = OpenInstanceMethodEntryPointsHashtable(table);
             NativeHashtable.AllEntriesEnumerator enumerator = hashtable.EnumerateAllEntries();
-            var entries = new List<InstanceMethodEntry>();
 
-            NativeParser curParser = enumerator.GetNext();
-            while (!curParser.IsNull())
+            for (NativeParser curParser = enumerator.GetNext(); !curParser.IsNull(); curParser = enumerator.GetNext())
             {
-                int signatureBlobOffset = (int)curParser.Offset;
-                byte lowHashcode = curParser.LowHashcode;
-
-                entries.Add(new InstanceMethodEntry((InstanceMethodPayloadOffset)signatureBlobOffset, lowHashcode));
-                curParser = enumerator.GetNext();
+                yield return new InstanceMethodEntry((InstanceMethodPayloadOffset)curParser.Offset, curParser.LowHashcode);
             }
-
-            return new InstanceMethodEntryPointsTable(entries);
         }
 
         /// <summary>
