@@ -484,7 +484,11 @@ public sealed partial class R2RFixupSignature
 
             default:
                 if (index < parts.Length && parts[index].Kind == SignaturePartKind.FixupOpaquePayloadOffset)
-                    return new R2ROpaqueFixupPayload((int)MethodSignature.Expect(parts, ref index, SignaturePartKind.FixupOpaquePayloadOffset));
+                    return new R2ROpaqueFixupPayload(
+                        (R2ROpaqueFixupPayloadOffset)(uint)MethodSignature.Expect(
+                            parts,
+                            ref index,
+                            SignaturePartKind.FixupOpaquePayloadOffset));
                 throw new NotSupportedException($"Fixup kind {(byte)fixupKind:X2} is not supported by the structural decoder.");
         }
     }

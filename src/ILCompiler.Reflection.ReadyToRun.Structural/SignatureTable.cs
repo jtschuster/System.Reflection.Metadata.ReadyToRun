@@ -23,7 +23,7 @@ public sealed class SignatureTable
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<SignatureTableRva, SignatureTable> _signatureTableCache;
+    private Dictionary<(SignatureTableRva Handle, int EntryCount), SignatureTable> _signatureTableCache;
 
     /// <summary>
     /// Decode a signature indirection table into per-slot <see cref="SignatureRva"/> values.
@@ -32,15 +32,30 @@ public partial class ReadyToRunReader
     /// <param name="entryCount">Number of slots in the owning import section.</param>
     public SignatureTable GetSignatureTable(SignatureTableRva handle, int entryCount)
     {
-        if ((int)handle == 0 || entryCount <= 0)
+        EnsureSemanticDecodingSupported(nameof(GetSignatureTable));
+
+        if (entryCount < 0)
+            throw new BadImageFormatException("Signature table contains a negative entry count.");
+        if ((uint)handle == 0 || entryCount == 0)
             return null;
 
-        _signatureTableCache ??= new Dictionary<SignatureTableRva, SignatureTable>();
+        _signatureTableCache ??= new Dictionary<(SignatureTableRva, int), SignatureTable>();
+        var cacheKey = (handle, entryCount);
 
-        if (_signatureTableCache.TryGetValue(handle, out SignatureTable cached))
+        if (_signatureTableCache.TryGetValue(cacheKey, out SignatureTable cached))
             return cached;
 
-        int tableOffset = GetOffsetForRVA((int)handle);
+        int byteCount;
+        try
+        {
+            byteCount = checked(entryCount * sizeof(int));
+        }
+        catch (OverflowException exception)
+        {
+            throw new BadImageFormatException("Signature table byte length overflows Int32.", exception);
+        }
+
+        int tableOffset = ValidateAndGetRvaRange((uint)handle, byteCount, "Signature table");
         var entries = new SignatureRva[entryCount];
 
         for (int i = 0; i < entryCount; i++)
@@ -51,7 +66,7 @@ public partial class ReadyToRunReader
         }
 
         var table = new SignatureTable(entries);
-        _signatureTableCache[handle] = table;
+        _signatureTableCache[cacheKey] = table;
         return table;
     }
 }

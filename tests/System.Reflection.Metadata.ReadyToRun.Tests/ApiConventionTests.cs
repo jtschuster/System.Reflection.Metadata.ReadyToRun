@@ -75,6 +75,8 @@ public sealed class ApiConventionTests
         new object[] { "InlinerListOffset" },
         new object[] { "InstanceMethodPayloadOffset" },
         new object[] { "PgoPayloadOffset" },
+        new object[] { "PgoDataBlobOffset" },
+        new object[] { "R2ROpaqueFixupPayloadOffset" },
     };
 
     [Theory]
@@ -239,6 +241,29 @@ public sealed class ApiConventionTests
         Assert.Null(nativeVarInfo.GetField("EndOffset", BindingFlags.Public | BindingFlags.Instance));
         Assert.Null(nativeVarInfo.GetField("Variable", BindingFlags.Public | BindingFlags.Instance));
         Assert.NotNull(nativeVarInfo.GetField("RangeLength", BindingFlags.Public | BindingFlags.Instance));
+    }
+
+    [Fact]
+    public void HeaderDirectoryModels_AreImmutableAndReaderOwned()
+    {
+        Type header = typeof(ReadyToRunHeader);
+        Assert.Empty(header.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.False(header.GetProperty(nameof(ReadyToRunHeader.MajorVersion))!.CanWrite);
+        Assert.False(header.GetProperty(nameof(ReadyToRunHeader.MinorVersion))!.CanWrite);
+        Assert.False(header.GetProperty(nameof(ReadyToRunHeader.Flags))!.CanWrite);
+        Assert.False(header.GetProperty(nameof(ReadyToRunHeader.Sections))!.CanWrite);
+
+        Type coreHeader = typeof(ReadyToRunCoreHeader);
+        Assert.Empty(coreHeader.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.False(coreHeader.GetProperty(nameof(ReadyToRunCoreHeader.Flags))!.CanWrite);
+        Assert.False(coreHeader.GetProperty(nameof(ReadyToRunCoreHeader.Sections))!.CanWrite);
+
+        Type section = typeof(ReadyToRunSection);
+        Assert.Empty(section.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.False(section.GetProperty(nameof(ReadyToRunSection.Type))!.CanWrite);
+        Assert.False(section.GetProperty(nameof(ReadyToRunSection.RelativeVirtualAddress))!.CanWrite);
+        Assert.False(section.GetProperty(nameof(ReadyToRunSection.Size))!.CanWrite);
+        Assert.Null(section.GetProperty("DelayLoadMethodThunkRva", BindingFlags.Public | BindingFlags.Instance));
     }
 
     private static Type RequireType(string simpleName)

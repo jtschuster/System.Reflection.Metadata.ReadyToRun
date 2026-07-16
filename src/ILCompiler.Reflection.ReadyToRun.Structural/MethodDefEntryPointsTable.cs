@@ -35,17 +35,30 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
+        private Dictionary<int, uint> _nativeArrayEndOffsets;
+
         public MethodDefEntryPointsTable GetMethodDefEntryPointsTable(ReadyToRunSection section)
         {
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            NativeArray methodEntryPoints = new NativeArray(_nativeReader, (uint)sectionOffset);
-            var entries = new NativeArrayHandle(sectionOffset, checked((int)methodEntryPoints.GetCount()));
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints,
+                nameof(GetMethodDefEntryPointsTable));
+            uint sectionEndOffset = checked((uint)(sectionOffset + section.Size));
+            NativeArray methodEntryPoints = new NativeArray(_nativeReader, (uint)sectionOffset, sectionEndOffset);
+            uint encodedCount = methodEntryPoints.GetCount();
+            if (encodedCount > int.MaxValue)
+                throw new BadImageFormatException("MethodDefEntryPoints count exceeds the supported range.");
+
+            var entries = new NativeArrayHandle(sectionOffset, (int)encodedCount);
+            _nativeArrayEndOffsets ??= new Dictionary<int, uint>();
+            _nativeArrayEndOffsets[sectionOffset] = sectionEndOffset;
 
             return new MethodDefEntryPointsTable(entries);
         }
 
         public bool TryGetMethodDefEntryPoint(MethodDefEntryPointsTable table, MethodRid methodRid, out MethodDefEntry entry)
         {
+            EnsureSemanticDecodingSupported(nameof(TryGetMethodDefEntryPoint));
             int rowId = (int)methodRid;
             if (rowId <= 0 || rowId > table.EntryCount)
             {
@@ -61,29 +74,41 @@ namespace System.Reflection.Metadata.ReadyToRun
                 return false;
             }
 
-            entry = DecodeMethodDefEntryPoint(offset);
+            entry = DecodeMethodDefEntryPoint(offset, table.Entries);
             return true;
         }
 
         public IEnumerable<(MethodRid MethodRid, MethodDefEntry Entry)> EnumerateMethodDefEntryPoints(MethodDefEntryPointsTable table)
         {
+            EnsureSemanticDecodingSupported(nameof(EnumerateMethodDefEntryPoints));
             NativeArray methodEntryPoints = GetNativeArray(table.Entries);
             for (int rowId = 1; rowId <= table.EntryCount; rowId++)
             {
                 int offset = 0;
                 if (methodEntryPoints.TryGetAt((uint)(rowId - 1), ref offset))
-                    yield return ((MethodRid)rowId, DecodeMethodDefEntryPoint(offset));
+                    yield return ((MethodRid)rowId, DecodeMethodDefEntryPoint(offset, table.Entries));
             }
         }
 
         private NativeArray GetNativeArray(NativeArrayHandle handle)
         {
-            return new NativeArray(_nativeReader, (uint)handle.Offset);
+            if (_nativeArrayEndOffsets is null
+                || !_nativeArrayEndOffsets.TryGetValue(handle.Offset, out uint endOffset))
+            {
+                throw new ArgumentException(
+                    "The NativeArray handle was not created by this ReadyToRunReader.",
+                    nameof(handle));
+            }
+
+            return new NativeArray(_nativeReader, (uint)handle.Offset, endOffset);
         }
 
-        private MethodDefEntry DecodeMethodDefEntryPoint(int offset)
+        private MethodDefEntry DecodeMethodDefEntryPoint(int offset, NativeArrayHandle handle)
         {
-            (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) = DecodeRuntimeFunctionIdAndFixupCellList(offset);
+            uint endOffset = _nativeArrayEndOffsets[handle.Offset];
+            RegisterPayloadRange(offset, handle.Offset, (int)endOffset);
+            (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) =
+                DecodeRuntimeFunctionIdAndFixupCellList(offset, handle.Offset, (int)endOffset);
             return new MethodDefEntry(runtimeFunctionIndex, fixupCellListHandle);
         }
     }

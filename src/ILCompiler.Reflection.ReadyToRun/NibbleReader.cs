@@ -24,6 +24,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Offset within the image.
         /// </summary>
         private int _offset;
+        private readonly int _endOffset;
 
         /// <summary>
         /// Value of the next nibble or 0xFF when there's no cached next nibble.
@@ -31,9 +32,21 @@ namespace System.Reflection.Metadata.ReadyToRun
         private byte _nextNibble;
 
         public NibbleReader(NativeReader imageReader, int offset)
+            : this(
+                imageReader,
+                offset,
+                imageReader.Length > int.MaxValue ? int.MaxValue : (int)imageReader.Length)
         {
-            _imageReader = imageReader;
+        }
+
+        public NibbleReader(NativeReader imageReader, int offset, int endOffset)
+        {
+            _imageReader = imageReader ?? throw new System.ArgumentNullException(nameof(imageReader));
+            if (offset < 0 || offset > endOffset || endOffset > imageReader.Length)
+                throw new BadImageFormatException("Nibble stream range is outside the image.");
+
             _offset = offset;
+            _endOffset = endOffset;
             _nextNibble = NoNextNibble;
         }
 
@@ -47,6 +60,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
             else
             {
+                if (_offset >= _endOffset)
+                    throw new BadImageFormatException("Nibble stream extends beyond its containing range.");
+
                 _nextNibble = _imageReader.ReadByte(ref _offset);
                 result = (byte)(_nextNibble & 0x0F);
                 _nextNibble >>= 4;
@@ -68,7 +84,11 @@ namespace System.Reflection.Metadata.ReadyToRun
             do
             {
                 nibble = ReadNibble();
-                value = (value << 3) + (nibble & 0x7);
+                uint payload = nibble & 0x7;
+                if (value > (uint.MaxValue - payload) >> 3)
+                    throw new BadImageFormatException("Nibble-encoded unsigned integer overflows UInt32.");
+
+                value = (value << 3) + payload;
             }
             while ((nibble & 0x8) != 0);
 

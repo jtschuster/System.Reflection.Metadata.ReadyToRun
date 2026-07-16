@@ -28,8 +28,18 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public HotColdMapTable GetHotColdMapTable(ReadyToRunSection section)
         {
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            int count = section.Size / (2 * sizeof(int));
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.HotColdMap,
+                nameof(GetHotColdMapTable));
+            const int entrySize = 2 * sizeof(int);
+            if (section.Size % entrySize != 0)
+            {
+                throw new BadImageFormatException(
+                    $"HotColdMap section size {section.Size} is not divisible by entry size {entrySize}.");
+            }
+
+            int count = section.Size / entrySize;
             var entries = new List<HotColdMapEntry>(count);
 
             for (int i = 0; i < count; i++)

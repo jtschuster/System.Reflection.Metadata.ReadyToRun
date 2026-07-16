@@ -75,11 +75,21 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public ImportSectionsTableSection GetImportSectionsTableSection(ReadyToRunSection section)
         {
-            int offset = this.GetOffsetForRVA(section.RelativeVirtualAddress);
-            int endOffset = offset + section.Size;
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ImportSections,
+                nameof(GetImportSectionsTableSection));
+            const int descriptorSize = 5 * sizeof(int);
+            if (section.Size % descriptorSize != 0)
+            {
+                throw new BadImageFormatException(
+                    $"ImportSections section size {section.Size} is not divisible by descriptor size {descriptorSize}.");
+            }
+
+            int count = section.Size / descriptorSize;
             var entries = new List<ImportSectionEntry>();
 
-            while (offset < endOffset)
+            for (int i = 0; i < count; i++)
             {
                 int sectionRva = this.ImageReader.ReadInt32(ref offset);
                 int sectionSize = this.ImageReader.ReadInt32(ref offset);
@@ -89,6 +99,23 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                 int signatureRva = this.ImageReader.ReadInt32(ref offset);
                 int auxiliaryDataRva = this.ImageReader.ReadInt32(ref offset);
+                if (sectionSize < 0)
+                    throw new BadImageFormatException("Import section descriptor contains a negative section size.");
+
+                if (ValidationMode == ReadyToRunValidationMode.Strict)
+                {
+                    const ReadyToRunImportSectionFlags knownFlags =
+                        ReadyToRunImportSectionFlags.Eager | ReadyToRunImportSectionFlags.PCode;
+                    ReadyToRunImportSectionFlags unknownFlags = flags & ~knownFlags;
+                    if (unknownFlags != 0)
+                    {
+                        throw new NotSupportedException(
+                            $"Import section flags 0x{(ushort)unknownFlags:X4} are not supported.");
+                    }
+
+                    if (!System.Enum.IsDefined(typeof(ReadyToRunImportSectionType), type))
+                        throw new NotSupportedException($"Import section type {(byte)type} is not supported.");
+                }
 
                 entries.Add(new ImportSectionEntry(
                     (ImportSlotTableRva)sectionRva,
@@ -105,20 +132,24 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         public int GetImportSectionEntrySize(ImportSectionEntry entry)
         {
+            EnsureSemanticDecodingSupported(nameof(GetImportSectionEntrySize));
             if (entry.EncodedEntrySize != 0)
                 return entry.EncodedEntrySize;
 
-            return this.Machine switch
-            {
-                Machine.I386 or Machine.ArmThumb2 => 4,
-                Machine.Amd64 or Machine.Arm64 or Machine.LoongArch64 or Machine.RiscV64 => 8,
-                _ => throw new System.NotImplementedException(this.Machine.ToString()),
-            };
+            return TargetPointerSize;
         }
 
         public int GetImportSectionEntryCount(ImportSectionEntry entry)
         {
-            return entry.SectionSize / GetImportSectionEntrySize(entry);
+            EnsureSemanticDecodingSupported(nameof(GetImportSectionEntryCount));
+            int entrySize = GetImportSectionEntrySize(entry);
+            if (entry.SectionSize < 0 || entry.SectionSize % entrySize != 0)
+            {
+                throw new BadImageFormatException(
+                    $"Import section size {entry.SectionSize} is not divisible by entry size {entrySize}.");
+            }
+
+            return entry.SectionSize / entrySize;
         }
     }
 

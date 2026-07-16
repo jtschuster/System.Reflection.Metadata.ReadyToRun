@@ -14,7 +14,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// <summary>
     /// Fields common to the global R2R header and per-assembly headers in composite R2R images.
     /// </summary>
-    public class ReadyToRunCoreHeader
+    public sealed class ReadyToRunCoreHeader
     {
         /// <summary>Flags in the header.</summary>
         public uint Flags { get; }
@@ -22,10 +22,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>The ReadyToRun section handles.</summary>
         public IReadOnlyList<ReadyToRunSection> Sections { get; }
 
-        public ReadyToRunCoreHeader(uint flags, IReadOnlyList<ReadyToRunSection> sections)
+        internal ReadyToRunCoreHeader(uint flags, IReadOnlyList<ReadyToRunSection> sections)
         {
             Flags = flags;
-            Sections = sections;
+            Sections = new List<ReadyToRunSection>(sections).AsReadOnly();
         }
     }
 
@@ -36,7 +36,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// <remarks>
     /// Crossgen2 emitter: <c>ReadyToRunHeaderNode</c>.
     /// </remarks>
-    public class ReadyToRunHeader
+    public sealed class ReadyToRunHeader
     {
         // READYTORUN_HEADER fields
 
@@ -58,8 +58,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>
         /// The ReadyToRun version
         /// </summary>
-        public ushort MajorVersion { get; set; }
-        public ushort MinorVersion { get; set; }
+        public ushort MajorVersion { get; }
+        public ushort MinorVersion { get; }
 
         /// <summary>Whether this reader has a semantic profile for the encoded version.</summary>
         public ReadyToRunFormatSupport FormatSupport { get; }
@@ -70,21 +70,21 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Flags in the header
         /// eg. PLATFORM_NEUTRAL_SOURCE, SKIP_TYPE_VALIDATION
         /// </summary>
-        public uint Flags { get; set; }
+        public uint Flags { get; }
 
         /// <summary>
         /// The ReadyToRun section RVAs and sizes
         /// </summary>
-        public IReadOnlyList<ReadyToRunSection> Sections { get; private set; }
+        public IReadOnlyList<ReadyToRunSection> Sections { get; }
 
 
-        public ReadyToRunHeader(uint signature, ushort majorVersion, ushort minorVersion, uint flags, IReadOnlyList<ReadyToRunSection> sections)
+        internal ReadyToRunHeader(uint signature, ushort majorVersion, ushort minorVersion, uint flags, IReadOnlyList<ReadyToRunSection> sections)
         {
             Signature = signature;
             MajorVersion = majorVersion;
             MinorVersion = minorVersion;
             Flags = flags;
-            Sections = sections;
+            Sections = new List<ReadyToRunSection>(sections).AsReadOnly();
             FormatSupport = ReadyToRunFormatProfile.Create(majorVersion, minorVersion).Support;
         }
 

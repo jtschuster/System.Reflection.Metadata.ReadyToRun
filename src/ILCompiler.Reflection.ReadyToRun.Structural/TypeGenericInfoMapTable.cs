@@ -53,9 +53,24 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public TypeGenericInfoMapTable GetTypeGenericInfoMapTable(ReadyToRunSection section)
         {
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.TypeGenericInfoMap,
+                nameof(GetTypeGenericInfoMapTable));
+            if (section.Size < sizeof(int))
+                throw new BadImageFormatException("TypeGenericInfoMap section is missing its entry count.");
+
             int count = _nativeReader.ReadInt32(ref offset);
-            int byteCount = (count + 1) / 2;
+            if (count < 0)
+                throw new BadImageFormatException("TypeGenericInfoMap contains a negative entry count.");
+
+            int byteCount = checked((int)(((long)count + 1) / 2));
+            if (section.Size != sizeof(int) + byteCount)
+            {
+                throw new BadImageFormatException(
+                    $"TypeGenericInfoMap section size {section.Size} does not match its encoded count {count}.");
+            }
+
             byte[] data = new byte[byteCount];
 
             for (int i = 0; i < byteCount; i++)

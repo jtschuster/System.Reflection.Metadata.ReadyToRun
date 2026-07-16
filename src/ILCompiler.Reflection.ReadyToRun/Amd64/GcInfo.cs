@@ -47,7 +47,8 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
         private const int MIN_GCINFO_VERSION_WITH_RETURN_KIND = 2;
         private const int MAX_GCINFO_VERSION_WITH_RETURN_KIND = 3;
         private const int MIN_GCINFO_VERSION_WITH_REV_PINVOKE_FRAME = 2;
-        private const int MIN_GCINFO_VERSION_WITH_NORMALIZED_CODE_OFFSETS = 3;
+        private const int MIN_GCINFO_VERSION_WITH_NORMALIZED_CODE_OFFSETS = 4;
+        private const int MIN_GCINFO_VERSION_WITH_DIRECT_SAFE_POINT_OFFSETS = 4;
 
         private bool _slimHeader;
         private bool _hasSecurityObject;
@@ -89,7 +90,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
         {
             Offset = offset;
             Version = version;
-            bool denormalizeCodeOffsets = Version > MIN_GCINFO_VERSION_WITH_NORMALIZED_CODE_OFFSETS;
+            bool denormalizeCodeOffsets = Version >= MIN_GCINFO_VERSION_WITH_NORMALIZED_CODE_OFFSETS;
             _gcInfoTypes = new GcInfoTypes(machine, denormalizeCodeOffsets);
             _machine = machine;
 
@@ -360,7 +361,14 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
             for (int i = 0; i < NumSafePoints; i++)
             {
                 uint normOffset = (uint)imageReader.ReadBits((int)numBitsPerOffset, ref bitOffset);
-                safePoints.Add(new SafePointOffset(_gcInfoTypes.DenormalizeCodeOffset(normOffset)));
+                uint safePointOffset = _gcInfoTypes.DenormalizeCodeOffset(normOffset);
+                if (Version < MIN_GCINFO_VERSION_WITH_DIRECT_SAFE_POINT_OFFSETS)
+                {
+                    // GCInfo v1-v3 store returnPC - 1 rather than the return PC.
+                    safePointOffset++;
+                }
+
+                safePoints.Add(new SafePointOffset(safePointOffset));
             }
             return safePoints;
         }

@@ -46,10 +46,8 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             _moduleNames = BuildModuleNameTable(reader, imageReader);
             LoadModuleMetadata(imageReader);
 
-            var header = reader.GetHeader();
-            bool startAtTwo = header.MajorVersion > 6
-                || (header.MajorVersion == 6 && header.MinorVersion >= 3);
-            _componentAssemblyIndexOffset = startAtTwo ? 2 : 1;
+            _componentAssemblyIndexOffset = reader.ComponentAssemblyIndexOffset;
+            bool startAtTwo = _componentAssemblyIndexOffset == 2;
 
             if (startAtTwo)
             {
@@ -157,10 +155,8 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
 
             int manifestAssemblyRefCount = manifestReader?.GetTableRowCount(TableIndex.AssemblyRef) ?? 0;
 
-            var header = reader.GetHeader();
-            bool startAtTwo = header.MajorVersion > 6
-                || (header.MajorVersion == 6 && header.MinorVersion >= 3);
-            int manifestSlotOffset = startAtTwo ? 2 : 1;
+            int manifestSlotOffset = reader.ComponentAssemblyIndexOffset;
+            bool startAtTwo = manifestSlotOffset == 2;
 
             int totalSlots = mainAssemblyRefCount + manifestSlotOffset + manifestAssemblyRefCount;
             var names = new string[totalSlots];

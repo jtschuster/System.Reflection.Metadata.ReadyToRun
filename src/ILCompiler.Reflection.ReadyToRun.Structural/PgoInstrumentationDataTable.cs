@@ -30,7 +30,10 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public PgoInstrumentationDataTable GetPgoInstrumentationDataTable(ReadyToRunSection section)
         {
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.PgoInstrumentationData,
+                nameof(GetPgoInstrumentationDataTable));
             NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
             NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
             var enumerator = hashtable.EnumerateAllEntries();
@@ -42,6 +45,10 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int signatureBlobOffset = (int)curParser.Offset;
                 byte lowHashcode = curParser.LowHashcode;
 
+                RegisterPayloadRange(
+                    signatureBlobOffset,
+                    sectionOffset,
+                    checked(sectionOffset + section.Size));
                 entries.Add(new PgoEntry((PgoPayloadOffset)signatureBlobOffset, lowHashcode));
                 curParser = enumerator.GetNext();
             }
@@ -75,11 +82,21 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public PgoPayload GetPgoPayload(PgoEntry entry, IReadyToRunSignatureDecodingOptions options)
         {
-            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, (int)entry.PayloadOffset, TargetPointerSize, options);
+            EnsureSemanticDecodingSupported(nameof(GetPgoPayload));
+            ArgumentNullException.ThrowIfNull(entry);
+            ArgumentNullException.ThrowIfNull(options);
 
-            int offset = signature.EndOffset;
-            uint versionAndFlags = 0;
-            offset = (int)_nativeReader.DecodeUnsigned((uint)offset, ref versionAndFlags);
+            int payloadOffset = (int)entry.PayloadOffset;
+            (int sectionOffset, int sectionEndOffset) = GetPayloadRange(payloadOffset, nameof(entry));
+            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
+            EnsurePayloadOffsetWithinRange(signature.EndOffset, payloadOffset, allowEndOffset: false);
+
+            var parser = new NativeParser(
+                _nativeReader,
+                (uint)signature.EndOffset,
+                (uint)sectionEndOffset);
+            uint versionAndFlags = parser.GetUnsigned();
+            int offset = (int)parser.Offset;
 
             int pgoDataBlobOffset;
             switch (versionAndFlags & 3)
@@ -90,16 +107,23 @@ namespace System.Reflection.Metadata.ReadyToRun
                     break;
                 case 3:
                     // Back-reference: subtract delta from post-versionAndFlags offset.
-                    uint delta = 0;
-                    _nativeReader.DecodeUnsigned((uint)offset, ref delta);
+                    uint delta = parser.GetUnsigned();
+                    if (delta > (uint)(offset - sectionOffset))
+                        throw new BadImageFormatException("PGO data back-reference points outside its containing section.");
                     pgoDataBlobOffset = offset - (int)delta;
                     break;
                 default:
                     throw new BadImageFormatException("Invalid PGO instrumentation data format");
             }
 
+            if (pgoDataBlobOffset < sectionOffset || pgoDataBlobOffset >= sectionEndOffset)
+                throw new BadImageFormatException("PGO data offset is outside its containing section.");
+
             int pgoFormatVersion = (int)(versionAndFlags >> 2);
-            return new PgoPayload(signature.Signature, pgoFormatVersion, pgoDataBlobOffset);
+            return new PgoPayload(
+                signature.Signature,
+                pgoFormatVersion,
+                (PgoDataBlobOffset)(uint)pgoDataBlobOffset);
         }
     }
 
@@ -110,6 +134,9 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// The underlying value is the file offset (not RVA) of the payload start.
     /// </summary>
     public enum PgoPayloadOffset : uint { }
+
+    /// <summary>Opaque file offset to a PGO schema data blob.</summary>
+    public enum PgoDataBlobOffset : uint { }
 
     /// <summary>
     /// A single entry in the PgoInstrumentationData hashtable.
@@ -146,9 +173,12 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// File offset of the PGO data blob. For back-referenced entries this points at a
         /// previously-emitted (deduplicated) blob and may precede the entry's own offset.
         /// </summary>
-        public int PgoDataBlobOffset { get; }
+        public PgoDataBlobOffset PgoDataBlobOffset { get; }
 
-        internal PgoPayload(R2RSignature methodSignature, int pgoFormatVersion, int pgoDataBlobOffset)
+        internal PgoPayload(
+            R2RSignature methodSignature,
+            int pgoFormatVersion,
+            PgoDataBlobOffset pgoDataBlobOffset)
         {
             MethodSignature = methodSignature;
             PgoFormatVersion = pgoFormatVersion;

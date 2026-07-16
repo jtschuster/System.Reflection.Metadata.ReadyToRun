@@ -473,9 +473,12 @@ public sealed class R2RFieldOffsetValueFixupPayload : R2RFixupPayload
 /// </summary>
 public sealed class R2ROpaqueFixupPayload : R2RFixupPayload
 {
-    public int PayloadOffset { get; }
+    public R2ROpaqueFixupPayloadOffset PayloadOffset { get; }
 
-    public R2ROpaqueFixupPayload(int payloadOffset) => PayloadOffset = payloadOffset;
+    public R2ROpaqueFixupPayload(R2ROpaqueFixupPayloadOffset payloadOffset) => PayloadOffset = payloadOffset;
 
-    public override void AppendTo(StringBuilder sb) => sb.Append($"opaque-payload@0x{PayloadOffset:X}");
+    public override void AppendTo(StringBuilder sb) => sb.Append($"opaque-payload@0x{(uint)PayloadOffset:X}");
 }
+
+/// <summary>Opaque file offset to an unknown fixup payload preserved during tolerant decoding.</summary>
+public enum R2ROpaqueFixupPayloadOffset : uint { }

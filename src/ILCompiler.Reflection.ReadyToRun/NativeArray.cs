@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.IO;
 using System.Text;
 
@@ -17,15 +18,43 @@ namespace System.Reflection.Metadata.ReadyToRun
         private uint _baseOffset;
         private uint _nElements;
         private byte _entryIndexSize;
+        private uint _endOffset;
+        private uint _entryIndexByteCount;
 
         public NativeArray(NativeReader reader, uint offset)
+            : this(
+                reader,
+                offset,
+                reader.Length > uint.MaxValue ? uint.MaxValue : (uint)reader.Length)
         {
-            _reader = reader;
+        }
+
+        public NativeArray(NativeReader reader, uint offset, uint endOffset)
+        {
+            _reader = reader ?? throw new ArgumentNullException(nameof(reader));
+            if (offset >= endOffset || endOffset > reader.Length)
+                throw new BadImageFormatException("NativeArray range is outside the image.");
 
             uint val = 0;
             _baseOffset = _reader.DecodeUnsigned(offset, ref val);
+            if (_baseOffset > endOffset)
+                throw new BadImageFormatException("NativeArray header extends beyond its containing range.");
+
             _nElements = (val >> 2);
             _entryIndexSize = (byte)(val & 3);
+            if (_entryIndexSize > 2)
+                throw new BadImageFormatException("NativeArray has an invalid entry index size.");
+
+            ulong blockCount = ((ulong)_nElements + _blockSize - 1) / _blockSize;
+            ulong entryIndexByteCount = blockCount << _entryIndexSize;
+            if (entryIndexByteCount > uint.MaxValue
+                || (ulong)_baseOffset + entryIndexByteCount > endOffset)
+            {
+                throw new BadImageFormatException("NativeArray entry index extends beyond its containing range.");
+            }
+
+            _entryIndexByteCount = (uint)entryIndexByteCount;
+            _endOffset = endOffset;
         }
 
         public uint GetCount()
@@ -57,32 +86,47 @@ namespace System.Reflection.Metadata.ReadyToRun
                 return false;
 
             uint offset;
+            ulong entryIndexOffset = (ulong)_baseOffset
+                + ((ulong)(index / _blockSize) << _entryIndexSize);
+            if (entryIndexOffset + (1u << _entryIndexSize) > (ulong)_baseOffset + _entryIndexByteCount)
+                throw new BadImageFormatException("NativeArray entry index is out of bounds.");
+
             if (_entryIndexSize == 0)
             {
-                int i = (int)(_baseOffset + (index / _blockSize));
+                int i = checked((int)entryIndexOffset);
                 offset = _reader.ReadByte(ref i);
             }
             else if (_entryIndexSize == 1)
             {
-                int i = (int)(_baseOffset + 2 * (index / _blockSize));
+                int i = checked((int)entryIndexOffset);
                 offset = _reader.ReadUInt16(ref i);
             }
             else
             {
-                int i = (int)(_baseOffset + 4 * (index / _blockSize));
+                int i = checked((int)entryIndexOffset);
                 offset = _reader.ReadUInt32(ref i);
             }
-            offset += _baseOffset;
+
+            ulong absoluteOffset = (ulong)_baseOffset + offset;
+            if (absoluteOffset >= _endOffset)
+                throw new BadImageFormatException("NativeArray node offset is out of bounds.");
+            offset = (uint)absoluteOffset;
 
             for (uint bit = _blockSize >> 1; bit > 0; bit >>= 1)
             {
                 uint val = 0;
                 uint offset2 = _reader.DecodeUnsigned(offset, ref val);
+                if (offset2 > _endOffset)
+                    throw new BadImageFormatException("NativeArray node extends beyond its containing range.");
+
                 if ((index & bit) != 0)
                 {
                     if ((val & 2) != 0)
                     {
-                        offset += val >> 2;
+                        ulong nextOffset = (ulong)offset + (val >> 2);
+                        if (nextOffset >= _endOffset)
+                            throw new BadImageFormatException("NativeArray branch offset is out of bounds.");
+                        offset = (uint)nextOffset;
                         continue;
                     }
                 }
@@ -107,6 +151,9 @@ namespace System.Reflection.Metadata.ReadyToRun
                 }
                 return false;
             }
+            if (offset >= _endOffset)
+                throw new BadImageFormatException("NativeArray payload offset is out of bounds.");
+
             pOffset = (int)offset;
             return true;
         }

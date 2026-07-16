@@ -80,6 +80,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <param name="ehInfoByteLength">Byte length of the EH info region (distance to next entry or section end).</param>
         public EHInfo GetEHInfo(EHInfoRva handle, int ehInfoByteLength)
         {
+            EnsureSemanticDecodingSupported(nameof(GetEHInfo));
             if (_ehInfoCache.TryGetValue(handle, out EHInfo cached))
                 return cached;
 

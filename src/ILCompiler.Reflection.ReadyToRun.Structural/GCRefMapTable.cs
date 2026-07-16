@@ -82,7 +82,7 @@ public sealed class GCRefMapTable
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<AuxiliaryDataTableRva, GCRefMapTable> _gcRefMapTableCache;
+    private Dictionary<(AuxiliaryDataTableRva Handle, int EntryCount), GCRefMapTable> _gcRefMapTableCache;
 
     /// <summary>
     /// Decode the GC reference map table at the given auxiliary data handle.
@@ -91,15 +91,31 @@ public partial class ReadyToRunReader
     /// <param name="entryCount">Number of slots in the owning import section.</param>
     public GCRefMapTable GetGCRefMapTable(AuxiliaryDataTableRva handle, int entryCount)
     {
-        if ((int)handle == 0 || entryCount <= 0)
+        EnsureSemanticDecodingSupported(nameof(GetGCRefMapTable));
+
+        if (entryCount < 0)
+            throw new BadImageFormatException("GC reference map table contains a negative entry count.");
+        if ((uint)handle == 0 || entryCount == 0)
             return null;
 
-        _gcRefMapTableCache ??= new Dictionary<AuxiliaryDataTableRva, GCRefMapTable>();
+        _gcRefMapTableCache ??= new Dictionary<(AuxiliaryDataTableRva, int), GCRefMapTable>();
+        var cacheKey = (handle, entryCount);
 
-        if (_gcRefMapTableCache.TryGetValue(handle, out GCRefMapTable cached))
+        if (_gcRefMapTableCache.TryGetValue(cacheKey, out GCRefMapTable cached))
             return cached;
 
-        int auxDataOffset = GetOffsetForRVA((int)handle);
+        int strideCount;
+        int lookupByteCount;
+        try
+        {
+            strideCount = checked((entryCount / GCRefMapLookupStride) + 1);
+            lookupByteCount = checked(strideCount * sizeof(int));
+        }
+        catch (OverflowException exception)
+        {
+            throw new BadImageFormatException("GC reference map lookup table size overflows Int32.", exception);
+        }
+        int auxDataOffset = ValidateAndGetRvaRange((uint)handle, lookupByteCount, "GC reference map lookup table");
         var entries = new GCRefMap[entryCount];
 
         for (int i = 0; i < entryCount; i++)
@@ -108,7 +124,11 @@ public partial class ReadyToRunReader
             int remaining = i % GCRefMapLookupStride;
 
             int lookupOffset = auxDataOffset + sizeof(int) * strideIndex;
-            int entryOffset = auxDataOffset + _nativeReader.ReadInt32(ref lookupOffset);
+            int relativeEntryOffset = _nativeReader.ReadInt32(ref lookupOffset);
+            long absoluteEntryOffset = (long)auxDataOffset + relativeEntryOffset;
+            if (absoluteEntryOffset < auxDataOffset + lookupByteCount || absoluteEntryOffset >= _nativeReader.Length)
+                throw new BadImageFormatException("GC reference map entry offset is outside the image.");
+            int entryOffset = (int)absoluteEntryOffset;
 
             // Skip forward through compressed records to reach the target slot
             while (remaining > 0)
@@ -126,7 +146,7 @@ public partial class ReadyToRunReader
         }
 
         var table = new GCRefMapTable(entries);
-        _gcRefMapTableCache[handle] = table;
+        _gcRefMapTableCache[cacheKey] = table;
         return table;
     }
 

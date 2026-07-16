@@ -228,11 +228,72 @@ namespace System.Reflection.Metadata.ReadyToRun
             int startOffset = GetOffsetForRVA((int)rva);
             int endOffset = GetOffsetForRVA((int)lastRva);
             long expectedEndOffset = (long)startOffset + section.Size - 1;
+            if (expectedEndOffset >= int.MaxValue)
+            {
+                throw new NotSupportedException(
+                    $"ReadyToRun section {(int)section.Type} exceeds the reader's file-offset range.");
+            }
+
             if (endOffset != expectedEndOffset || startOffset < 0 || expectedEndOffset >= _nativeReader.Length)
             {
                 throw new BadImageFormatException(
                     $"ReadyToRun section {(int)section.Type} does not map to a contiguous in-image byte range.");
             }
+
+            return startOffset;
+        }
+
+        internal int ValidateAndGetSectionOffset(
+            ReadyToRunSection section,
+            ReadyToRunSectionType expectedType,
+            string operation)
+        {
+            EnsureSemanticDecodingSupported(operation);
+            if (section.Type != expectedType)
+            {
+                throw new ArgumentException(
+                    $"{operation} requires a {expectedType} section.",
+                    nameof(section));
+            }
+
+            return ValidateAndGetSectionOffset(section);
+        }
+
+        internal int ValidateAndGetRvaRange(uint rva, int size, string operation)
+        {
+            if (size < 0)
+                throw new BadImageFormatException($"{operation} has a negative byte length.");
+            if (rva > int.MaxValue)
+                throw new NotSupportedException($"{operation} RVA 0x{rva:X8} exceeds the reader's address range.");
+
+            int startOffset = GetOffsetForRVA((int)rva);
+            if (size == 0)
+            {
+                if (startOffset < 0 || startOffset > _nativeReader.Length)
+                    throw new BadImageFormatException($"{operation} starts outside the image.");
+                return startOffset;
+            }
+
+            uint lastRva;
+            try
+            {
+                lastRva = checked(rva + (uint)size - 1);
+            }
+            catch (OverflowException exception)
+            {
+                throw new BadImageFormatException($"{operation} RVA and byte length overflow.", exception);
+            }
+
+            if (lastRva > int.MaxValue)
+                throw new NotSupportedException($"{operation} end RVA 0x{lastRva:X8} exceeds the reader's address range.");
+
+            int lastOffset = GetOffsetForRVA((int)lastRva);
+            long expectedLastOffset = (long)startOffset + size - 1;
+            if (expectedLastOffset >= int.MaxValue)
+                throw new NotSupportedException($"{operation} exceeds the reader's file-offset range.");
+
+            if (startOffset < 0 || lastOffset != expectedLastOffset || expectedLastOffset >= _nativeReader.Length)
+                throw new BadImageFormatException($"{operation} does not map to a contiguous in-image byte range.");
 
             return startOffset;
         }
@@ -307,8 +368,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public MetadataReader GetManifestMetadataReader(ReadyToRunSection manifestSection)
         {
-            EnsureSemanticDecodingSupported(nameof(GetManifestMetadataReader));
-            int manifestOffset = GetOffsetForRVA(manifestSection.RelativeVirtualAddress);
+            int manifestOffset = ValidateAndGetSectionOffset(
+                manifestSection,
+                ReadyToRunSectionType.ManifestMetadata,
+                nameof(GetManifestMetadataReader));
             int manifestSize = manifestSection.Size;
             if (manifestSize <= 0)
                 return null;
@@ -328,6 +391,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <param name="fixupOffset">Fixup list offset, or null if no fixups.</param>
         public void GetRuntimeFunctionIndexFromOffset(int offset, out int runtimeFunctionIndex, out int? fixupOffset)
         {
+            EnsureSemanticDecodingSupported(nameof(GetRuntimeFunctionIndexFromOffset));
             fixupOffset = null;
 
             uint id = 0;
@@ -369,6 +433,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public R2RFixupSignature DecodeFixupSignature(int signatureRva, IReadyToRunSignatureDecodingOptions options)
         {
+            EnsureSemanticDecodingSupported(nameof(DecodeFixupSignature));
             int offset = _platformBinaryReader.GetOffset(signatureRva);
             R2RSignature signature = RawSignatureDecoder.DecodeFixupSignature(_nativeReader, offset, TargetPointerSize, options);
             return R2RFixupSignature.FromSignature(signature);

@@ -117,7 +117,7 @@ public sealed class CompatibilityDecodingTests
         R2RFixupSignature fixup = R2RFixupSignature.FromSignature(tolerant.Signature);
         Assert.Equal((ReadyToRunFixupKind)0x7A, fixup.Kind);
         R2ROpaqueFixupPayload payload = Assert.IsType<R2ROpaqueFixupPayload>(fixup.Payload);
-        Assert.Equal(1, payload.PayloadOffset);
+        Assert.Equal((R2ROpaqueFixupPayloadOffset)1u, payload.PayloadOffset);
     }
 
     [Fact]

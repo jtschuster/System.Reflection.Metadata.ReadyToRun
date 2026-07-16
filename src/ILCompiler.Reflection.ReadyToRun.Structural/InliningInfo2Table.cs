@@ -35,7 +35,10 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public InliningInfo2Table GetInliningInfo2Table(ReadyToRunSection section)
         {
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.InliningInfo2,
+                nameof(GetInliningInfo2Table));
             NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
             NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
             var enumerator = hashtable.EnumerateAllEntries();
@@ -44,37 +47,49 @@ namespace System.Reflection.Metadata.ReadyToRun
             NativeParser curParser = enumerator.GetNext();
             while (!curParser.IsNull())
             {
-                int count = (int)curParser.GetUnsigned();
-                int inlineeRidAndFlag = (int)curParser.GetUnsigned();
-                count--;
+                uint encodedItemCount = curParser.GetUnsigned();
+                if (encodedItemCount == 0)
+                    throw new BadImageFormatException("InliningInfo2 entry has an empty payload.");
 
-                int inlineeRid = inlineeRidAndFlag >> 1;
+                uint remainingItemCount = encodedItemCount - 1;
+                uint inlineeRidAndFlag = curParser.GetUnsigned();
+
+                int inlineeRid = (int)(inlineeRidAndFlag >> 1);
                 bool inlineeHasModule = (inlineeRidAndFlag & 1) != 0;
                 uint inlineeModuleIndex = 0;
 
                 if (inlineeHasModule)
                 {
+                    if (remainingItemCount == 0)
+                        throw new BadImageFormatException("InliningInfo2 inlinee module index is missing.");
+
                     inlineeModuleIndex = curParser.GetUnsigned();
-                    count--;
+                    remainingItemCount--;
                 }
 
                 var inliners = new List<InlinerRef>();
                 int currentRid = 0;
 
-                while (count > 0)
+                while (remainingItemCount > 0)
                 {
-                    int inlinerDeltaAndFlag = (int)curParser.GetUnsigned();
-                    count--;
-                    int inlinerDelta = inlinerDeltaAndFlag >> 1;
-                    currentRid += inlinerDelta;
+                    uint inlinerDeltaAndFlag = curParser.GetUnsigned();
+                    remainingItemCount--;
+                    uint inlinerDelta = inlinerDeltaAndFlag >> 1;
+                    if (inlinerDelta > int.MaxValue - currentRid)
+                        throw new BadImageFormatException("InliningInfo2 inliner RID overflows Int32.");
+
+                    currentRid += (int)inlinerDelta;
 
                     bool inlinerHasModule = (inlinerDeltaAndFlag & 1) != 0;
                     uint inlinerModuleIndex = 0;
 
                     if (inlinerHasModule)
                     {
+                        if (remainingItemCount == 0)
+                            throw new BadImageFormatException("InliningInfo2 inliner module index is missing.");
+
                         inlinerModuleIndex = curParser.GetUnsigned();
-                        count--;
+                        remainingItemCount--;
                     }
 
                     inliners.Add(new InlinerRef((MethodRid)currentRid, inlinerHasModule, inlinerModuleIndex));

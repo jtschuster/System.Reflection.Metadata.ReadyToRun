@@ -57,7 +57,8 @@ public sealed class DebugInfo
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<DebugInfoOffset, DebugInfo> _debugInfoCache = new Dictionary<DebugInfoOffset, DebugInfo>();
+    private readonly Dictionary<(DebugInfoOffset Offset, int StartOffset, int EndOffset), DebugInfo> _debugInfoCache = new();
+    private Dictionary<DebugInfoOffset, (int StartOffset, int EndOffset)> _debugInfoRanges;
 
     /// <summary>
     /// Parse debug information from an R2R image at the given file offset.
@@ -69,7 +70,19 @@ public partial class ReadyToRunReader
     {
         EnsureSemanticDecodingSupported(nameof(GetDebugInfo));
 
-        if (_debugInfoCache.TryGetValue(offset, out DebugInfo cached))
+        int containingStartOffset = 0;
+        int containingEndOffset = _nativeReader.Length > int.MaxValue
+            ? int.MaxValue
+            : (int)_nativeReader.Length;
+        if (_debugInfoRanges is not null
+            && _debugInfoRanges.TryGetValue(offset, out var registeredRange))
+        {
+            containingStartOffset = registeredRange.StartOffset;
+            containingEndOffset = registeredRange.EndOffset;
+        }
+
+        var cacheKey = (offset, containingStartOffset, containingEndOffset);
+        if (_debugInfoCache.TryGetValue(cacheKey, out DebugInfo cached))
         {
             return cached;
         }
@@ -84,17 +97,25 @@ public partial class ReadyToRunReader
         // Resolve the NativeArray indirection (lookback encoding)
         uint lookback = 0;
         uint debugInfoOffset = imageReader.DecodeUnsigned(entryOffset, ref lookback);
+        if (debugInfoOffset > containingEndOffset)
+            throw new BadImageFormatException("Debug info lookback encoding extends beyond its containing section.");
 
         if (lookback != 0)
         {
-            if (lookback >= entryOffset)
-                throw new BadImageFormatException("Debug info lookback points outside the preceding image data.");
+            if (entryOffset < containingStartOffset
+                || lookback > entryOffset - (uint)containingStartOffset)
+            {
+                throw new BadImageFormatException("Debug info lookback points outside its containing section.");
+            }
             debugInfoOffset = entryOffset - lookback;
         }
         if (debugInfoOffset > int.MaxValue)
             throw new BadImageFormatException("Debug info payload offset exceeds the supported image range.");
 
-        NibbleReader reader = new NibbleReader(imageReader, (int)debugInfoOffset);
+        NibbleReader reader = new NibbleReader(
+            imageReader,
+            (int)debugInfoOffset,
+            containingEndOffset);
 
         uint boundsByteCountOrIndicator = reader.ReadUInt();
 
@@ -129,8 +150,8 @@ public partial class ReadyToRunReader
             patchpointInfoByteCount +
             richDebugInfoByteCount +
             asyncInfoByteCount;
-        if (payloadByteCount > imageReader.Length - boundsOffset)
-            throw new BadImageFormatException("Debug info payload extends outside the image.");
+        if (payloadByteCount > containingEndOffset - (long)boundsOffset)
+            throw new BadImageFormatException("Debug info payload extends outside its containing section.");
         if (payloadByteCount > int.MaxValue - (long)boundsOffset)
             throw new BadImageFormatException("Debug info payload exceeds the supported image range.");
         if (boundsByteCount > int.MaxValue ||
@@ -172,7 +193,7 @@ public partial class ReadyToRunReader
             ReadDebugInfoBytes(imageReader, patchpointInfoOffset, patchpointInfoByteCount).ToImmutableArray(),
             ReadDebugInfoBytes(imageReader, richDebugInfoOffset, richDebugInfoByteCount).ToImmutableArray(),
             ReadDebugInfoBytes(imageReader, asyncInfoOffset, asyncInfoByteCount).ToImmutableArray());
-        _debugInfoCache[offset] = parsed;
+        _debugInfoCache[cacheKey] = parsed;
         return parsed;
 
         static byte[] ReadDebugInfoBytes(NativeReader imageReader, int offset, uint byteCount)
@@ -390,5 +411,18 @@ public partial class ReadyToRunReader
 
             return offset;
         }
+    }
+
+    private void RegisterDebugInfoRange(
+        DebugInfoOffset offset,
+        int containingStartOffset,
+        int containingEndOffset)
+    {
+        uint rawOffset = (uint)offset;
+        if (rawOffset < containingStartOffset || rawOffset >= containingEndOffset)
+            throw new BadImageFormatException("Debug info entry offset is outside its containing section.");
+
+        _debugInfoRanges ??= new Dictionary<DebugInfoOffset, (int, int)>();
+        _debugInfoRanges[offset] = (containingStartOffset, containingEndOffset);
     }
 }

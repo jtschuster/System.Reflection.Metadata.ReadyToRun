@@ -27,7 +27,16 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public ComponentAssembliesTable GetComponentAssembliesTable(ReadyToRunSection section)
         {
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ComponentAssemblies,
+                nameof(GetComponentAssembliesTable));
+            if (section.Size % ComponentAssemblyEntry.Size != 0)
+            {
+                throw new BadImageFormatException(
+                    $"ComponentAssemblies section size {section.Size} is not divisible by entry size {ComponentAssemblyEntry.Size}.");
+            }
+
             int count = section.Size / ComponentAssemblyEntry.Size;
             var entries = new List<ComponentAssemblyEntry>(count);
 

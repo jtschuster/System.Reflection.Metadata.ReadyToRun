@@ -26,19 +26,40 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
+        private Dictionary<InlinerListOffset, int> _inlinerListEndOffsets;
+
         public InliningInfoTable GetInliningInfoTable(ReadyToRunSection section)
         {
-            int startOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int startOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.InliningInfo,
+                nameof(GetInliningInfoTable));
+            if (section.Size < sizeof(int))
+                throw new BadImageFormatException("InliningInfo section is missing its inlinee index size.");
+
             int offset = startOffset;
             int sizeOfInlineIndex = _nativeReader.ReadInt32(ref offset);
+            if (sizeOfInlineIndex < 0 || sizeOfInlineIndex % (2 * sizeof(int)) != 0)
+                throw new BadImageFormatException("InliningInfo inlinee index has an invalid size.");
+
+            int sectionEndOffset = startOffset + section.Size;
+            if (sizeOfInlineIndex > sectionEndOffset - offset)
+                throw new BadImageFormatException("InliningInfo inlinee index extends beyond its section.");
             int inlineIndexEndOffset = offset + sizeOfInlineIndex;
+
             var entries = new List<InliningInfoEntry>();
+            _inlinerListEndOffsets ??= new Dictionary<InlinerListOffset, int>();
 
             while (offset < inlineIndexEndOffset)
             {
                 int inlineeRid = _nativeReader.ReadInt32(ref offset);
                 int inlinersRelativeOffset = _nativeReader.ReadInt32(ref offset);
-                var handle = (InlinerListOffset)(uint)(inlineIndexEndOffset + inlinersRelativeOffset);
+                long inlinersOffset = (long)inlineIndexEndOffset + inlinersRelativeOffset;
+                if (inlinersOffset < inlineIndexEndOffset || inlinersOffset >= sectionEndOffset)
+                    throw new BadImageFormatException("InliningInfo inliner-list offset is outside its section.");
+
+                var handle = (InlinerListOffset)(uint)inlinersOffset;
+                _inlinerListEndOffsets[handle] = sectionEndOffset;
                 entries.Add(new InliningInfoEntry((MethodRid)inlineeRid, handle));
             }
 
@@ -50,14 +71,30 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public IReadOnlyList<MethodRid> GetInliners(InlinerListOffset handle)
         {
-            var nibbleReader = new NibbleReader(_nativeReader, (int)(uint)handle);
-            uint sameModuleCount = nibbleReader.ReadUInt();
+            EnsureSemanticDecodingSupported(nameof(GetInliners));
+            if (_inlinerListEndOffsets is null
+                || !_inlinerListEndOffsets.TryGetValue(handle, out int sectionEndOffset))
+            {
+                throw new ArgumentException(
+                    "The inliner-list handle was not created by this ReadyToRunReader.",
+                    nameof(handle));
+            }
 
-            var inlinerRids = new List<MethodRid>((int)sameModuleCount);
+            var nibbleReader = new NibbleReader(_nativeReader, (int)(uint)handle, sectionEndOffset);
+            uint sameModuleCount = nibbleReader.ReadUInt();
+            long availableNibbleCount = ((long)sectionEndOffset - (uint)handle) * 2;
+            if (sameModuleCount > availableNibbleCount)
+                throw new BadImageFormatException("InliningInfo inliner count exceeds the containing nibble stream.");
+
+            var inlinerRids = new List<MethodRid>((int)System.Math.Min(sameModuleCount, 1024));
             int baseRid = 0;
             for (uint i = 0; i < sameModuleCount; i++)
             {
-                int currentRid = baseRid + (int)nibbleReader.ReadUInt();
+                uint delta = nibbleReader.ReadUInt();
+                if (delta > int.MaxValue - baseRid)
+                    throw new BadImageFormatException("InliningInfo inliner RID overflows Int32.");
+
+                int currentRid = baseRid + (int)delta;
                 inlinerRids.Add((MethodRid)currentRid);
                 baseRid = currentRid;
             }

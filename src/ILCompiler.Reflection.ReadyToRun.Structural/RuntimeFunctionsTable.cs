@@ -28,8 +28,17 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public RuntimeFunctionsTable GetRuntimeFunctionsTable(ReadyToRunSection section)
         {
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.RuntimeFunctions,
+                nameof(GetRuntimeFunctionsTable));
             int entrySize = CalculateRuntimeFunctionSize();
+            if (section.Size % entrySize != 0)
+            {
+                throw new BadImageFormatException(
+                    $"RuntimeFunctions section size {section.Size} is not divisible by entry size {entrySize}.");
+            }
+
             int count = section.Size / entrySize;
             bool isAmd64 = Machine == Machine.Amd64;
             var entries = new List<RuntimeFunctionEntry>(count);

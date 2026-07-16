@@ -27,14 +27,24 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public ExceptionInfoTable GetExceptionInfoTable(ReadyToRunSection section)
         {
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ExceptionInfo,
+                nameof(GetExceptionInfoTable));
             int length = section.Size;
+            const int recordSize = 2 * sizeof(int);
+            if (length < recordSize || length % recordSize != 0)
+            {
+                throw new BadImageFormatException(
+                    $"ExceptionInfo section size {length} does not contain a whole sentinel-terminated record array.");
+            }
+
             var entries = new List<ExceptionInfoEntry>();
 
             // The encoding ends with a sentinel record (MethodRva = ~0u, EhInfoRva = endOfEhInfo)
             // used to compute the size of the previous record's clauses. It is not a real entry.
-            int totalRecords = length / (2 * sizeof(int));
-            int realEntries = totalRecords > 0 ? totalRecords - 1 : 0;
+            int totalRecords = length / recordSize;
+            int realEntries = totalRecords - 1;
 
             for (int i = 0; i < realEntries; i++)
             {
@@ -42,6 +52,11 @@ namespace System.Reflection.Metadata.ReadyToRun
                 var ehInfoRva = (EHInfoRva)_nativeReader.ReadInt32(ref offset);
                 entries.Add(new ExceptionInfoEntry(methodRva, ehInfoRva));
             }
+
+            int sentinelMethodRva = _nativeReader.ReadInt32(ref offset);
+            _nativeReader.ReadInt32(ref offset);
+            if (sentinelMethodRva != -1)
+                throw new BadImageFormatException("ExceptionInfo section is missing its terminal sentinel record.");
 
             return new ExceptionInfoTable(entries);
         }

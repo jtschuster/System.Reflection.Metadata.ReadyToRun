@@ -27,16 +27,27 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public DebugInfoTable GetDebugInfoTable(ReadyToRunSection section)
         {
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            NativeArray debugInfoArray = new NativeArray(_nativeReader, (uint)sectionOffset);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.DebugInfo,
+                nameof(GetDebugInfoTable));
+            NativeArray debugInfoArray = new NativeArray(
+                _nativeReader,
+                (uint)sectionOffset,
+                checked((uint)(sectionOffset + section.Size)));
             uint count = debugInfoArray.GetCount();
             var entries = new List<DebugInfoEntry>();
+            int sectionEndOffset = sectionOffset + section.Size;
 
             for (uint i = 0; i < count; i++)
             {
                 int offset = default;
                 if (debugInfoArray.TryGetAt(i, ref offset))
                 {
+                    RegisterDebugInfoRange(
+                        (DebugInfoOffset)(uint)offset,
+                        sectionOffset,
+                        sectionEndOffset);
                     entries.Add(new DebugInfoEntry((DebugInfoOffset)offset));
                 }
             }

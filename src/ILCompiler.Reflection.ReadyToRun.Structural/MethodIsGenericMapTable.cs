@@ -30,9 +30,24 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public MethodIsGenericMapTable GetMethodIsGenericMapTable(ReadyToRunSection section)
         {
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.MethodIsGenericMap,
+                nameof(GetMethodIsGenericMapTable));
+            if (section.Size < sizeof(int))
+                throw new BadImageFormatException("MethodIsGenericMap section is missing its entry count.");
+
             int count = _nativeReader.ReadInt32(ref offset);
-            int byteCount = (count + 7) / 8;
+            if (count < 0)
+                throw new BadImageFormatException("MethodIsGenericMap contains a negative entry count.");
+
+            int byteCount = checked((int)(((long)count + 7) / 8));
+            if (section.Size != sizeof(int) + byteCount)
+            {
+                throw new BadImageFormatException(
+                    $"MethodIsGenericMap section size {section.Size} does not match its encoded count {count}.");
+            }
+
             byte[] data = new byte[byteCount];
 
             for (int i = 0; i < byteCount; i++)
@@ -47,6 +62,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public bool IsMethodGeneric(MethodIsGenericMapTable table, MethodRid methodRid)
         {
+            EnsureSemanticDecodingSupported(nameof(IsMethodGeneric));
             int rid = (int)methodRid;
             if (rid < 1 || rid > table.Count)
                 return false;

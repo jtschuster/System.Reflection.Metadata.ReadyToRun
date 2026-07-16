@@ -30,7 +30,10 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public AvailableTypesTable GetAvailableTypesTable(ReadyToRunSection section)
         {
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.AvailableTypes,
+                nameof(GetAvailableTypesTable));
             NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
             NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
             NativeHashtable.AllEntriesEnumerator enumerator = hashtable.EnumerateAllEntries();

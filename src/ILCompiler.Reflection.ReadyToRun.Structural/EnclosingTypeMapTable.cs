@@ -29,8 +29,21 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public EnclosingTypeMapTable GetEnclosingTypeMapTable(ReadyToRunSection section)
         {
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.EnclosingTypeMap,
+                nameof(GetEnclosingTypeMapTable));
+            if (section.Size < sizeof(ushort))
+                throw new BadImageFormatException("EnclosingTypeMap section is missing its entry count.");
+
             ushort count = _nativeReader.ReadUInt16(ref offset);
+            int expectedSize = checked(sizeof(ushort) + (count * sizeof(ushort)));
+            if (section.Size != expectedSize)
+            {
+                throw new BadImageFormatException(
+                    $"EnclosingTypeMap section size {section.Size} does not match its encoded count {count}.");
+            }
+
             ushort[] rids = new ushort[count];
 
             for (int i = 0; i < count; i++)
@@ -45,6 +58,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public int GetEnclosingTypeRid(EnclosingTypeMapTable table, int typeDefRid)
         {
+            EnsureSemanticDecodingSupported(nameof(GetEnclosingTypeRid));
             if (typeDefRid < 1 || typeDefRid > table.Count)
                 return 0;
 

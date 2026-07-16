@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -19,12 +20,30 @@ namespace System.Reflection.Metadata.ReadyToRun
         public byte LowHashcode { get; }
 
         NativeReader _imageReader;
+        uint _endOffset;
 
         public NativeParser(NativeReader imageReader, uint offset, byte lowHashcode = 0)
+            : this(
+                imageReader,
+                offset,
+                imageReader is null || imageReader.Length > uint.MaxValue
+                    ? uint.MaxValue
+                    : (uint)imageReader.Length,
+                lowHashcode)
         {
+        }
+
+        internal NativeParser(NativeReader imageReader, uint offset, uint endOffset, byte lowHashcode = 0)
+        {
+            if (imageReader is null)
+                throw new ArgumentNullException(nameof(imageReader));
+            if (offset > endOffset || endOffset > imageReader.Length)
+                throw new BadImageFormatException("NativeParser range is outside the image.");
+
             Offset = offset;
             LowHashcode = lowHashcode;
             _imageReader = imageReader;
+            _endOffset = endOffset;
         }
 
         public bool IsNull()
@@ -38,6 +57,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             int delta = 0;
             Offset = _imageReader.DecodeSigned(Offset, ref delta);
+            EnsureWithinBounds();
 
             return pos + (uint)delta;
         }
@@ -45,11 +65,14 @@ namespace System.Reflection.Metadata.ReadyToRun
         public NativeParser GetParserFromRelativeOffset()
         {
             byte lowHashcode = GetByte();
-            return new NativeParser(_imageReader, GetRelativeOffset(), lowHashcode);
+            return new NativeParser(_imageReader, GetRelativeOffset(), _endOffset, lowHashcode);
         }
 
         public byte GetByte()
         {
+            if (Offset >= _endOffset)
+                throw new BadImageFormatException("NativeParser read extends beyond its containing range.");
+
             int off = (int)Offset;
             byte val = _imageReader.ReadByte(ref off);
             Offset += 1;
@@ -61,6 +84,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             int off = (int)Offset;
             uint val = _imageReader.ReadCompressedData(ref off);
             Offset = (uint)off;
+            EnsureWithinBounds();
             return val;
         }
 
@@ -68,6 +92,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         {
             uint value = 0;
             Offset = _imageReader.DecodeUnsigned(Offset, ref value);
+            EnsureWithinBounds();
             return value;
         }
 
@@ -75,7 +100,14 @@ namespace System.Reflection.Metadata.ReadyToRun
         {
             int value = 0;
             Offset = _imageReader.DecodeSigned(Offset, ref value);
+            EnsureWithinBounds();
             return value;
+        }
+
+        private void EnsureWithinBounds()
+        {
+            if (Offset > _endOffset)
+                throw new BadImageFormatException("NativeParser read extends beyond its containing range.");
         }
     }
 
@@ -90,23 +122,39 @@ namespace System.Reflection.Metadata.ReadyToRun
         private uint _bucketMask;
         private byte _entryIndexSize;
         private uint _endOffset;
+        private uint _startOffset;
+        private uint _entryIndexByteCount;
 
         public NativeHashtable(NativeReader imageReader, NativeParser parser, uint endOffset)
         {
+            _imageReader = imageReader ?? throw new ArgumentNullException(nameof(imageReader));
+            if (parser.IsNull() || parser.Offset >= endOffset || endOffset > imageReader.Length)
+                throw new BadImageFormatException("NativeHashtable range is outside the image.");
+
+            parser = new NativeParser(imageReader, parser.Offset, endOffset, parser.LowHashcode);
+            _startOffset = parser.Offset;
             uint header = parser.GetByte();
             _baseOffset = parser.Offset;
-            _imageReader = imageReader;
 
             int numberOfBucketsShift = (int)(header >> 2);
             if (numberOfBucketsShift > 31)
-                throw new System.BadImageFormatException();
-            _bucketMask = (uint)((1 << numberOfBucketsShift) - 1);
+                throw new BadImageFormatException("NativeHashtable has an invalid bucket count.");
+            uint numberOfBuckets = 1u << numberOfBucketsShift;
+            _bucketMask = numberOfBuckets - 1;
 
             byte entryIndexSize = (byte)(header & 3);
             if (entryIndexSize > 2)
-                throw new System.BadImageFormatException();
+                throw new BadImageFormatException("NativeHashtable has an invalid entry index size.");
             _entryIndexSize = entryIndexSize;
 
+            ulong entryIndexByteCount = ((ulong)numberOfBuckets + 1) << _entryIndexSize;
+            if (entryIndexByteCount > uint.MaxValue
+                || (ulong)_baseOffset + entryIndexByteCount > endOffset)
+            {
+                throw new BadImageFormatException("NativeHashtable bucket index extends beyond its containing range.");
+            }
+
+            _entryIndexByteCount = (uint)entryIndexByteCount;
             _endOffset = endOffset;
         }
 
@@ -165,11 +213,13 @@ namespace System.Reflection.Metadata.ReadyToRun
         public struct Enumerator
         {
             private NativeParser _parser;
+            private NativeHashtable _table;
             private uint _endOffset;
             private byte _lowHashcode;
 
-            internal Enumerator(NativeParser parser, uint endOffset, byte lowHashcode)
+            internal Enumerator(NativeHashtable table, NativeParser parser, uint endOffset, byte lowHashcode)
             {
+                _table = table;
                 _parser = parser;
                 _endOffset = endOffset;
                 _lowHashcode = lowHashcode;
@@ -194,7 +244,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                         // Rewind so GetParserFromRelativeOffset re-reads the byte and the
                         // signed delta, returning a parser at the entry's payload.
                         _parser.Offset = entryStart;
-                        return _parser.GetParserFromRelativeOffset();
+                        return _table.GetEntryParser(ref _parser, _endOffset);
                     }
 
                     // The entries are sorted by low hashcode within the bucket, so once we
@@ -207,6 +257,8 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                     // Skip past the signed relative-offset integer for this non-matching entry.
                     _parser.GetSigned();
+                    if (_parser.Offset > _endOffset)
+                        throw new BadImageFormatException("NativeHashtable entry extends beyond its bucket.");
                 }
                 return default;
             }
@@ -232,7 +284,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 {
                     while (_parser.Offset < _endOffset)
                     {
-                        return _parser.GetParserFromRelativeOffset();
+                        return _table.GetEntryParser(ref _parser, _endOffset);
                     }
 
                     if (_currentBucket >= _table._bucketMask)
@@ -246,6 +298,9 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         private NativeParser GetParserForBucket(uint bucket, out uint endOffset)
         {
+            if (bucket > _bucketMask)
+                throw new BadImageFormatException("NativeHashtable bucket index is out of bounds.");
+
             uint start, end;
 
             if (_entryIndexSize == 0)
@@ -267,8 +322,27 @@ namespace System.Reflection.Metadata.ReadyToRun
                 end = _imageReader.ReadUInt32(ref bucketOffset);
             }
 
-            endOffset = end + _baseOffset;
-            return new NativeParser(_imageReader, _baseOffset + start);
+            if (start > end || start < _entryIndexByteCount)
+                throw new BadImageFormatException("NativeHashtable bucket offsets are invalid.");
+
+            ulong absoluteStart = (ulong)_baseOffset + start;
+            ulong absoluteEnd = (ulong)_baseOffset + end;
+            if (absoluteStart > absoluteEnd || absoluteEnd > _endOffset)
+                throw new BadImageFormatException("NativeHashtable bucket extends beyond its containing range.");
+
+            endOffset = (uint)absoluteEnd;
+            return new NativeParser(_imageReader, (uint)absoluteStart, _endOffset);
+        }
+
+        private NativeParser GetEntryParser(ref NativeParser parser, uint bucketEndOffset)
+        {
+            NativeParser entryParser = parser.GetParserFromRelativeOffset();
+            if (parser.Offset > bucketEndOffset)
+                throw new BadImageFormatException("NativeHashtable entry extends beyond its bucket.");
+            if (entryParser.Offset < _startOffset || entryParser.Offset >= _endOffset)
+                throw new BadImageFormatException("NativeHashtable entry payload offset is out of bounds.");
+
+            return entryParser;
         }
 
         /// <summary>
@@ -288,7 +362,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             uint bucket = ((uint)hashcode >> 8) & _bucketMask;
             NativeParser parser = GetParserForBucket(bucket, out endOffset);
 
-            return new Enumerator(parser, endOffset, (byte)hashcode);
+            return new Enumerator(this, parser, endOffset, (byte)hashcode);
         }
 
         public AllEntriesEnumerator EnumerateAllEntries()

@@ -30,9 +30,12 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         public CrossModuleInlineInfoTable GetCrossModuleInlineInfoTable(ReadyToRunSection section)
         {
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.CrossModuleInlineInfo,
+                nameof(GetCrossModuleInlineInfoTable));
             bool multiModuleFormat = (ReadyToRunHeader.Flags & (uint)ReadyToRunFlags.READYTORUN_FLAG_MultiModuleVersionBubble) != 0;
 
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
             NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
             NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
             var enumerator = hashtable.EnumerateAllEntries();
@@ -42,6 +45,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             while (!curParser.IsNull())
             {
                 uint streamSize = curParser.GetUnsigned();
+                if (streamSize == 0)
+                    throw new BadImageFormatException("CrossModuleInlineInfo entry has an empty payload.");
+
                 uint inlineeIndexAndFlags = curParser.GetUnsigned();
                 streamSize--;
 
@@ -50,20 +56,28 @@ namespace System.Reflection.Metadata.ReadyToRun
                 bool crossModuleInlinee = (inlineeIndexAndFlags & 0x1) != 0;
 
                 uint inlineeModuleIndex = 0;
-                if (!crossModuleInlinee && multiModuleFormat && streamSize > 0)
+                if (!crossModuleInlinee && multiModuleFormat)
                 {
+                    if (streamSize == 0)
+                        throw new BadImageFormatException("CrossModuleInlineInfo inlinee module index is missing.");
+
                     inlineeModuleIndex = curParser.GetUnsigned();
                     streamSize--;
                 }
 
                 var inliners = new List<CrossModuleInlinerRef>();
 
-                if (hasCrossModuleInliners && streamSize > 0)
+                if (hasCrossModuleInliners)
                 {
+                    if (streamSize == 0)
+                        throw new BadImageFormatException("CrossModuleInlineInfo cross-module inliner count is missing.");
+
                     uint crossModuleInlinerCount = curParser.GetUnsigned();
                     streamSize--;
+                    if (crossModuleInlinerCount > streamSize)
+                        throw new BadImageFormatException("CrossModuleInlineInfo cross-module inliner count exceeds its payload.");
 
-                    for (uint i = 0; i < crossModuleInlinerCount && streamSize > 0; i++)
+                    for (uint i = 0; i < crossModuleInlinerCount; i++)
                     {
                         uint inlinerIndex = curParser.GetUnsigned();
                         streamSize--;
@@ -80,15 +94,25 @@ namespace System.Reflection.Metadata.ReadyToRun
                     uint moduleIndex = inlineeModuleIndex;
                     if (multiModuleFormat)
                     {
-                        currentRid += inlinerDeltaAndFlag >> 1;
-                        if ((inlinerDeltaAndFlag & 0x1) != 0 && streamSize > 0)
+                        uint inlinerDelta = inlinerDeltaAndFlag >> 1;
+                        if (inlinerDelta > uint.MaxValue - currentRid)
+                            throw new BadImageFormatException("CrossModuleInlineInfo inliner RID overflows UInt32.");
+
+                        currentRid += inlinerDelta;
+                        if ((inlinerDeltaAndFlag & 0x1) != 0)
                         {
+                            if (streamSize == 0)
+                                throw new BadImageFormatException("CrossModuleInlineInfo inliner module index is missing.");
+
                             moduleIndex = curParser.GetUnsigned();
                             streamSize--;
                         }
                     }
                     else
                     {
+                        if (inlinerDeltaAndFlag > uint.MaxValue - currentRid)
+                            throw new BadImageFormatException("CrossModuleInlineInfo inliner RID overflows UInt32.");
+
                         currentRid += inlinerDeltaAndFlag;
                     }
                     inliners.Add(new CrossModuleInlinerRef(isCrossModule: false, index: currentRid, moduleIndex: moduleIndex));

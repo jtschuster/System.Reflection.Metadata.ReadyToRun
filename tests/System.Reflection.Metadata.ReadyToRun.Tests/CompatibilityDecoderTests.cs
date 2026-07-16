@@ -36,6 +36,55 @@ public sealed class CompatibilityDecoderTests
         Assert.Equal(expectedGcInfoVersion, gcInfo.Version);
     }
 
+    [Theory]
+    [InlineData(9, 2, 3, 8, 4, 3, 5)]
+    [InlineData(11, 0, 4, 8, 5, 3, 5)]
+    public void Amd64GcInfoSafePointBoundary_DecodesReturnPc(
+        ushort majorVersion,
+        ushort minorVersion,
+        int gcInfoVersion,
+        uint encodedCodeLength,
+        uint encodedSafePointOffset,
+        int safePointBitCount,
+        uint expectedSafePointOffset)
+    {
+        byte[] payload = BuildAmd64GcInfoPayloadWithSafePoint(
+            gcInfoVersion,
+            encodedCodeLength,
+            encodedSafePointOffset,
+            safePointBitCount);
+        using ReadyToRunReader reader = CreateReader(
+            Machine.Amd64,
+            CreateAmd64GcInfoImage(majorVersion, minorVersion, payload));
+
+        Amd64GcInfo gcInfo = Assert.IsType<Amd64GcInfo>(
+            reader.GetGcInfo((UnwindInfoRva)(uint)UnwindInfoOffset));
+
+        Assert.Equal(expectedSafePointOffset, Assert.Single(gcInfo.SafePointOffsets).Value);
+    }
+
+    [Theory]
+    [InlineData(3, 4, 4, 4, 5)]
+    [InlineData(4, 4, 2, 2, 8)]
+    public void Arm64GcInfoSafePointBoundary_DecodesReturnPcAndNormalization(
+        int gcInfoVersion,
+        uint encodedCodeLength,
+        uint encodedSafePointOffset,
+        int safePointBitCount,
+        uint expectedSafePointOffset)
+    {
+        byte[] payload = BuildAmd64GcInfoPayloadWithSafePoint(
+            gcInfoVersion,
+            encodedCodeLength,
+            encodedSafePointOffset,
+            safePointBitCount,
+            numSafePointsEncodingBase: 3);
+        using var nativeReader = new NativeReader(new MemoryStream(payload), leaveOpen: false);
+        var gcInfo = new Amd64GcInfo(nativeReader, offset: 0, Machine.Arm64, gcInfoVersion);
+
+        Assert.Equal(expectedSafePointOffset, Assert.Single(gcInfo.SafePointOffsets).Value);
+    }
+
     [Fact]
     public void X86InfoHdr_GcInfoV5_ReusesNextOpcodeForAsyncBit()
     {
@@ -227,6 +276,30 @@ public sealed class CompatibilityDecoderTests
 
         writer.WriteVarLengthUnsigned(1, 8); // CodeLength
         writer.WriteVarLengthUnsigned(0, 2); // NumSafePoints
+        writer.WriteBit(false); // no registers
+        writer.WriteBit(false); // no stack slots / untracked slots
+        return writer.ToArray();
+    }
+
+    private static byte[] BuildAmd64GcInfoPayloadWithSafePoint(
+        int gcInfoVersion,
+        uint encodedCodeLength,
+        uint encodedSafePointOffset,
+        int safePointBitCount,
+        int numSafePointsEncodingBase = 2)
+    {
+        var writer = new BitWriter();
+        writer.WriteBit(false); // slim header
+        writer.WriteBit(false); // no stack base register
+
+        if (gcInfoVersion is >= 2 and <= 3)
+        {
+            writer.WriteBits(0, 2); // RT_Scalar
+        }
+
+        writer.WriteVarLengthUnsigned(encodedCodeLength, 8);
+        writer.WriteVarLengthUnsigned(1, numSafePointsEncodingBase);
+        writer.WriteBits(encodedSafePointOffset, safePointBitCount);
         writer.WriteBit(false); // no registers
         writer.WriteBit(false); // no stack slots / untracked slots
         return writer.ToArray();
