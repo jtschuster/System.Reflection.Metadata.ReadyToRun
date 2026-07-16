@@ -8,32 +8,18 @@ namespace System.Reflection.Metadata.ReadyToRun
 {
     public struct DebugInfoBoundsEntry
     {
-        public uint NativeOffset;
-        public uint ILOffset;
+        public uint NativeOffsetDelta;
+        public uint ILOffsetDelta;
         public SourceTypes SourceTypes;
     }
 
     public struct NativeVarInfo
     {
+        public int VariableNumber;
         public uint StartOffset;
-        public uint EndOffset;
-        // TODO: Eliminate this
-        public uint VariableNumber;
-        public Variable Variable { get; internal set; }
+        public uint? RangeLength;
+        public uint? CallReturnValueILOffset;
         public VarLoc VariableLocation;
-    }
-
-    public enum VariableType
-    {
-        Parameter,
-        Local,
-        // TODO: Special
-    }
-
-    public class Variable
-    {
-        public VariableType Type { get; internal set; }
-        public int Index { get; internal set; }
     }
 
     [Flags]
@@ -82,8 +68,13 @@ namespace System.Reflection.Metadata.ReadyToRun
         VarArgsHandle = -1,
         ReturnBuffer = -2,
         TypeContext = -3,
-        Unknown = -4,
-        Max = Unknown
+        AsyncContinuation = -4,
+        CallReturnValue = -5,
+        Unknown = -6,
+        Max = Unknown,
+        MaxV19 = -4,
+        MaxV20 = -5,
+        MaxV22 = -6,
     }
 
     public enum VarLocType

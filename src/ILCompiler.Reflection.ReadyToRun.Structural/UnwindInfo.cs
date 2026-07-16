@@ -13,7 +13,6 @@ public partial class ReadyToRunReader
 
     /// <summary>
     /// Resolve an <see cref="UnwindInfoRva"/> to its parsed unwind information.
-    /// Returns null if the handle cannot be decoded for the current architecture.
     /// </summary>
     /// <remarks>
     /// Crossgen2 emitter: per-RuntimeFunction unwind data attached to <c>MethodWithGCInfo</c>
@@ -21,28 +20,23 @@ public partial class ReadyToRunReader
     /// </remarks>
     public BaseUnwindInfo GetUnwindInfo(UnwindInfoRva handle)
     {
+        EnsureSemanticDecodingSupported(nameof(GetUnwindInfo));
+
         if (_unwindInfoCache.TryGetValue(handle, out BaseUnwindInfo cached))
             return cached;
 
-        BaseUnwindInfo result;
-        try
+        int unwindOffset = GetOffsetForRVA((int)handle);
+        BaseUnwindInfo result = Machine switch
         {
-            int unwindOffset = GetOffsetForRVA((int)handle);
-            result = Machine switch
-            {
-                Machine.I386 => new x86.UnwindInfo(ImageReader, unwindOffset),
-                Machine.Amd64 => new Amd64.UnwindInfo(ImageReader, unwindOffset),
-                Machine.ArmThumb2 => new Arm.UnwindInfo(ImageReader, unwindOffset),
-                Machine.Arm64 => new Arm64.UnwindInfo(ImageReader, unwindOffset),
-                Machine.LoongArch64 => new LoongArch64.UnwindInfo(ImageReader, unwindOffset),
-                Machine.RiscV64 => new RiscV64.UnwindInfo(ImageReader, unwindOffset),
-                _ => null,
-            };
-        }
-        catch
-        {
-            result = null;
-        }
+            Machine.I386 => new x86.UnwindInfo(ImageReader, unwindOffset),
+            Machine.Amd64 => new Amd64.UnwindInfo(ImageReader, unwindOffset),
+            Machine.ArmThumb2 => new Arm.UnwindInfo(ImageReader, unwindOffset),
+            Machine.Arm64 => new Arm64.UnwindInfo(ImageReader, unwindOffset),
+            Machine.LoongArch64 => new LoongArch64.UnwindInfo(ImageReader, unwindOffset),
+            Machine.RiscV64 => new RiscV64.UnwindInfo(ImageReader, unwindOffset),
+            WasmMachine.Wasm32 => throw new NotSupportedException("WebAssembly unwind info is not supported."),
+            _ => throw new NotSupportedException($"Unsupported unwind info machine '{Machine}'."),
+        };
 
         _unwindInfoCache[handle] = result;
         return result;

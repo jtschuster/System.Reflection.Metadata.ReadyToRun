@@ -223,6 +223,24 @@ public sealed class ApiConventionTests
             }));
     }
 
+    [Fact]
+    public void GcAndDebugModels_DoNotExposeTraversalDerivedValues()
+    {
+        Type safePointOffset = typeof(Amd64.GcInfo.SafePointOffset);
+        Assert.Null(safePointOffset.GetProperty("Index", BindingFlags.Public | BindingFlags.Instance));
+
+        Type boundsEntry = typeof(DebugInfoBoundsEntry);
+        Assert.Null(boundsEntry.GetField("NativeOffset", BindingFlags.Public | BindingFlags.Instance));
+        Assert.Null(boundsEntry.GetField("ILOffset", BindingFlags.Public | BindingFlags.Instance));
+        Assert.NotNull(boundsEntry.GetField("NativeOffsetDelta", BindingFlags.Public | BindingFlags.Instance));
+        Assert.NotNull(boundsEntry.GetField("ILOffsetDelta", BindingFlags.Public | BindingFlags.Instance));
+
+        Type nativeVarInfo = typeof(NativeVarInfo);
+        Assert.Null(nativeVarInfo.GetField("EndOffset", BindingFlags.Public | BindingFlags.Instance));
+        Assert.Null(nativeVarInfo.GetField("Variable", BindingFlags.Public | BindingFlags.Instance));
+        Assert.NotNull(nativeVarInfo.GetField("RangeLength", BindingFlags.Public | BindingFlags.Instance));
+    }
+
     private static Type RequireType(string simpleName)
     {
         Type? type = StructuralAssembly.GetType($"{Namespace}.{simpleName}", throwOnError: false);

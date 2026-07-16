@@ -3,7 +3,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using System.Collections.Immutable;
+using System.IO;
 using System.Reflection.PortableExecutable;
 
 
@@ -25,12 +26,32 @@ public sealed class DebugInfo
     /// <summary>Native variable location information.</summary>
     public IReadOnlyList<NativeVarInfo> Variables { get; }
 
+    /// <summary>Raw uninstrumented-bounds payload from a fat debug-info record.</summary>
+    public ImmutableArray<byte> UninstrumentedBounds { get; }
+
+    /// <summary>Raw patchpoint payload from a fat debug-info record.</summary>
+    public ImmutableArray<byte> PatchpointInfo { get; }
+
+    /// <summary>Raw rich-debug-info payload from a fat debug-info record.</summary>
+    public ImmutableArray<byte> RichDebugInfo { get; }
+
+    /// <summary>Raw async-info payload from a fat debug-info record.</summary>
+    public ImmutableArray<byte> AsyncInfo { get; }
+
     internal DebugInfo(
         IReadOnlyList<DebugInfoBoundsEntry> bounds,
-        IReadOnlyList<NativeVarInfo> variables)
+        IReadOnlyList<NativeVarInfo> variables,
+        ImmutableArray<byte> uninstrumentedBounds,
+        ImmutableArray<byte> patchpointInfo,
+        ImmutableArray<byte> richDebugInfo,
+        ImmutableArray<byte> asyncInfo)
     {
         Bounds = bounds;
         Variables = variables;
+        UninstrumentedBounds = uninstrumentedBounds;
+        PatchpointInfo = patchpointInfo;
+        RichDebugInfo = richDebugInfo;
+        AsyncInfo = asyncInfo;
     }
 }
 
@@ -42,13 +63,12 @@ public partial class ReadyToRunReader
     /// Parse debug information from an R2R image at the given file offset.
     /// This is a standalone parser that does not depend on <see cref="RuntimeFunction"/>.
     /// </summary>
-    /// <param name="imageReader">The NativeReader for the PE image.</param>
-    /// <param name="machine">Target architecture.</param>
-    /// <param name="majorVersion">R2R header major version (affects encoding format).</param>
     /// <param name="offset">File offset pointing into the debug info NativeArray.</param>
-    /// <returns>Parsed debug info, or null if parsing fails.</returns>
+    /// <returns>Parsed debug info.</returns>
     public DebugInfo GetDebugInfo(DebugInfoOffset offset)
     {
+        EnsureSemanticDecodingSupported(nameof(GetDebugInfo));
+
         if (_debugInfoCache.TryGetValue(offset, out DebugInfo cached))
         {
             return cached;
@@ -56,140 +76,206 @@ public partial class ReadyToRunReader
 
         NativeReader imageReader = ImageReader;
         Machine machine = Machine;
-        int majorVersion = _header.MajorVersion;
-        try
+        ReadyToRunFormatProfile profile = FormatProfile;
+        uint entryOffset = (uint)offset;
+        if (entryOffset > int.MaxValue)
+            throw new BadImageFormatException("Debug info entry offset exceeds the supported image range.");
+
+        // Resolve the NativeArray indirection (lookback encoding)
+        uint lookback = 0;
+        uint debugInfoOffset = imageReader.DecodeUnsigned(entryOffset, ref lookback);
+
+        if (lookback != 0)
         {
-            // Resolve the NativeArray indirection (lookback encoding)
-            uint lookback = 0;
-            uint debugInfoOffset = imageReader.DecodeUnsigned((uint)offset, ref lookback);
-
-            if (lookback != 0)
-            {
-                Debug.Assert(0 < lookback && lookback < (int)offset);
-                debugInfoOffset = (uint)offset - lookback;
-            }
-
-            NibbleReader reader = new NibbleReader(imageReader, (int)debugInfoOffset);
-
-            uint boundsByteCountOrIndicator = reader.ReadUInt();
-
-            uint boundsByteCount;
-            uint variablesByteCount;
-
-            const int DebugInfoFat = 0;
-            if (majorVersion >= 17 && boundsByteCountOrIndicator == DebugInfoFat)
-            {
-                boundsByteCount = reader.ReadUInt();
-                variablesByteCount = reader.ReadUInt();
-                reader.ReadUInt(); // uninstrumented bounds
-                reader.ReadUInt(); // patchpoint info
-                reader.ReadUInt(); // rich debug info
-                reader.ReadUInt(); // async info
-            }
-            else
-            {
-                boundsByteCount = boundsByteCountOrIndicator;
-                variablesByteCount = reader.ReadUInt();
-            }
-
-            int boundsOffset = reader.GetNextByteOffset();
-            int variablesOffset = (int)(boundsOffset + boundsByteCount);
-
-            var bounds = new List<DebugInfoBoundsEntry>();
-            if (boundsByteCount > 0)
-            {
-                ParseBounds(imageReader, boundsOffset, majorVersion, bounds);
-            }
-
-            var variables = new List<NativeVarInfo>();
-            if (variablesByteCount > 0)
-            {
-                ParseNativeVarInfo(imageReader, variablesOffset, machine, variables);
-            }
-
-            return new DebugInfo(bounds, variables);
+            if (lookback >= entryOffset)
+                throw new BadImageFormatException("Debug info lookback points outside the preceding image data.");
+            debugInfoOffset = entryOffset - lookback;
         }
-        catch
+        if (debugInfoOffset > int.MaxValue)
+            throw new BadImageFormatException("Debug info payload offset exceeds the supported image range.");
+
+        NibbleReader reader = new NibbleReader(imageReader, (int)debugInfoOffset);
+
+        uint boundsByteCountOrIndicator = reader.ReadUInt();
+
+        uint boundsByteCount;
+        uint variablesByteCount;
+        uint uninstrumentedBoundsByteCount = 0;
+        uint patchpointInfoByteCount = 0;
+        uint richDebugInfoByteCount = 0;
+        uint asyncInfoByteCount = 0;
+
+        const int DebugInfoFat = 0;
+        if (profile.UsesFatDebugInfo && boundsByteCountOrIndicator == DebugInfoFat)
         {
-            return null;
+            boundsByteCount = reader.ReadUInt();
+            variablesByteCount = reader.ReadUInt();
+            uninstrumentedBoundsByteCount = reader.ReadUInt();
+            patchpointInfoByteCount = reader.ReadUInt();
+            richDebugInfoByteCount = reader.ReadUInt();
+            asyncInfoByteCount = reader.ReadUInt();
+        }
+        else
+        {
+            boundsByteCount = boundsByteCountOrIndicator;
+            variablesByteCount = reader.ReadUInt();
+        }
+
+        int boundsOffset = reader.GetNextByteOffset();
+        long payloadByteCount =
+            (long)boundsByteCount +
+            variablesByteCount +
+            uninstrumentedBoundsByteCount +
+            patchpointInfoByteCount +
+            richDebugInfoByteCount +
+            asyncInfoByteCount;
+        if (payloadByteCount > imageReader.Length - boundsOffset)
+            throw new BadImageFormatException("Debug info payload extends outside the image.");
+        if (payloadByteCount > int.MaxValue - (long)boundsOffset)
+            throw new BadImageFormatException("Debug info payload exceeds the supported image range.");
+        if (boundsByteCount > int.MaxValue ||
+            variablesByteCount > int.MaxValue ||
+            uninstrumentedBoundsByteCount > int.MaxValue ||
+            patchpointInfoByteCount > int.MaxValue ||
+            richDebugInfoByteCount > int.MaxValue ||
+            asyncInfoByteCount > int.MaxValue)
+        {
+            throw new BadImageFormatException("Debug info payload is too large.");
+        }
+
+        int variablesOffset = checked(boundsOffset + (int)boundsByteCount);
+        int uninstrumentedBoundsOffset = checked(variablesOffset + (int)variablesByteCount);
+        int patchpointInfoOffset = checked(uninstrumentedBoundsOffset + (int)uninstrumentedBoundsByteCount);
+        int richDebugInfoOffset = checked(patchpointInfoOffset + (int)patchpointInfoByteCount);
+        int asyncInfoOffset = checked(richDebugInfoOffset + (int)richDebugInfoByteCount);
+
+        var bounds = new List<DebugInfoBoundsEntry>();
+        if (boundsByteCount > 0)
+        {
+            byte[] boundsBytes = ReadDebugInfoBytes(imageReader, boundsOffset, boundsByteCount);
+            using var boundsReader = new NativeReader(new MemoryStream(boundsBytes, writable: false), leaveOpen: false);
+            ParseBounds(boundsReader, profile, bounds);
+        }
+
+        var variables = new List<NativeVarInfo>();
+        if (variablesByteCount > 0)
+        {
+            byte[] variableBytes = ReadDebugInfoBytes(imageReader, variablesOffset, variablesByteCount);
+            using var variableReader = new NativeReader(new MemoryStream(variableBytes, writable: false), leaveOpen: false);
+            ParseNativeVarInfo(variableReader, machine, profile.NativeVarInfoVersion, variables);
+        }
+
+        DebugInfo parsed = new DebugInfo(
+            bounds,
+            variables,
+            ReadDebugInfoBytes(imageReader, uninstrumentedBoundsOffset, uninstrumentedBoundsByteCount).ToImmutableArray(),
+            ReadDebugInfoBytes(imageReader, patchpointInfoOffset, patchpointInfoByteCount).ToImmutableArray(),
+            ReadDebugInfoBytes(imageReader, richDebugInfoOffset, richDebugInfoByteCount).ToImmutableArray(),
+            ReadDebugInfoBytes(imageReader, asyncInfoOffset, asyncInfoByteCount).ToImmutableArray());
+        _debugInfoCache[offset] = parsed;
+        return parsed;
+
+        static byte[] ReadDebugInfoBytes(NativeReader imageReader, int offset, uint byteCount)
+        {
+            if (byteCount > int.MaxValue)
+                throw new BadImageFormatException("Debug info payload is too large.");
+
+            byte[] bytes = new byte[(int)byteCount];
+            imageReader.ReadSpanAt(ref offset, bytes);
+            return bytes;
         }
 
         static void ParseBounds(
             NativeReader imageReader,
-            int offset,
-            int majorVersion,
+            ReadyToRunFormatProfile profile,
             List<DebugInfoBoundsEntry> bounds)
         {
-            if (majorVersion >= 16)
+            const int offset = 0;
+            if (profile.UsesPackedDebugBounds)
             {
                 NibbleReader reader = new NibbleReader(imageReader, offset);
                 uint boundsEntryCount = reader.ReadUInt();
-                Debug.Assert(boundsEntryCount > 0);
-                uint bitsForNativeDelta = reader.ReadUInt() + 1;
-                uint bitsForILOffsets = reader.ReadUInt() + 1;
-
-                uint bitsForSourceType = majorVersion >= 17 ? 3u : 2u;
-                uint bitsPerEntry = bitsForNativeDelta + bitsForILOffsets + bitsForSourceType;
-                ulong bitsMeaningfulMask = (1UL << ((int)bitsPerEntry)) - 1;
-                int offsetOfActualBoundsData = reader.GetNextByteOffset();
-
-                uint bitsCollected = 0;
-                ulong bitTemp = 0;
-                uint curBoundsProcessed = 0;
-
-                uint previousNativeOffset = 0;
-
-                while (curBoundsProcessed < boundsEntryCount)
+                if (boundsEntryCount == 0)
+                    throw new BadImageFormatException("Packed debug bounds contain no entries.");
+                uint encodedBitsForNativeDelta = reader.ReadUInt();
+                uint encodedBitsForILOffsets = reader.ReadUInt();
+                if (encodedBitsForNativeDelta == uint.MaxValue ||
+                    encodedBitsForILOffsets == uint.MaxValue)
                 {
-                    bitTemp |= ((uint)imageReader[offsetOfActualBoundsData++]) << (int)bitsCollected;
-                    bitsCollected += 8;
-                    while (bitsCollected >= bitsPerEntry)
+                    throw new BadImageFormatException("Packed debug bounds use an invalid bit width.");
+                }
+
+                uint bitsForNativeDelta = encodedBitsForNativeDelta + 1;
+                uint bitsForILOffsets = encodedBitsForILOffsets + 1;
+
+                uint bitsForSourceType = profile.UsesFatDebugInfo ? 3u : 2u;
+                ulong bitsPerEntryValue = (ulong)bitsForNativeDelta + bitsForILOffsets + bitsForSourceType;
+                if (bitsForNativeDelta >= 64 ||
+                    bitsForILOffsets >= 64 ||
+                    bitsPerEntryValue > 64)
+                {
+                    throw new BadImageFormatException("Packed debug bounds use an invalid bit width.");
+                }
+                uint bitsPerEntry = (uint)bitsPerEntryValue;
+
+                ulong bitsMeaningfulMask = bitsPerEntry == 64
+                    ? ulong.MaxValue
+                    : (1UL << (int)bitsPerEntry) - 1;
+                int offsetOfActualBoundsData = reader.GetNextByteOffset();
+                long bitOffset = (long)offsetOfActualBoundsData * 8;
+
+                for (uint curBoundsProcessed = 0; curBoundsProcessed < boundsEntryCount; curBoundsProcessed++)
+                {
+                    ulong mappingDataEncoded = 0;
+                    for (int bitIndex = 0; bitIndex < bitsPerEntry; bitIndex++, bitOffset++)
                     {
-                        ulong mappingDataEncoded = bitsMeaningfulMask & bitTemp;
-                        bitTemp >>= (int)bitsPerEntry;
-                        bitsCollected -= bitsPerEntry;
-
-                        SourceTypes sourceTypes = 0;
-                        if ((mappingDataEncoded & 0x1) != 0)
-                            sourceTypes |= SourceTypes.CallInstruction;
-                        if ((mappingDataEncoded & 0x2) != 0)
-                            sourceTypes |= SourceTypes.StackEmpty;
-                        if (majorVersion >= 17 && (mappingDataEncoded & 0x4) != 0)
-                            sourceTypes |= SourceTypes.Async;
-
-                        mappingDataEncoded >>= (int)bitsForSourceType;
-                        uint nativeOffsetDelta = (uint)(mappingDataEncoded & ((1UL << (int)bitsForNativeDelta) - 1));
-                        previousNativeOffset += nativeOffsetDelta;
-                        var nativeOffset = previousNativeOffset;
-
-                        mappingDataEncoded >>= (int)bitsForNativeDelta;
-                        var ilOffset = (uint)mappingDataEncoded + (uint)DebugInfoBoundsType.MaxMappingValue;
-
-                        var entry = new DebugInfoBoundsEntry()
-                        {
-                            NativeOffset = nativeOffset,
-                            ILOffset = ilOffset,
-                            SourceTypes = sourceTypes
-                        };
-                        bounds.Add(entry);
-                        curBoundsProcessed++;
+                        long byteOffsetValue = bitOffset >> 3;
+                        if (byteOffsetValue > int.MaxValue)
+                            throw new BadImageFormatException("Packed debug bounds exceed the supported image range.");
+                        int byteOffset = (int)byteOffsetValue;
+                        int bitInByte = (int)(bitOffset & 7);
+                        ulong bit = ((ulong)imageReader[byteOffset] >> bitInByte) & 1;
+                        mappingDataEncoded |= bit << bitIndex;
                     }
+
+                    mappingDataEncoded &= bitsMeaningfulMask;
+                    SourceTypes sourceTypes = 0;
+                    if ((mappingDataEncoded & 0x1) != 0)
+                        sourceTypes |= SourceTypes.CallInstruction;
+                    if ((mappingDataEncoded & 0x2) != 0)
+                        sourceTypes |= SourceTypes.StackEmpty;
+                    if (profile.UsesFatDebugInfo && (mappingDataEncoded & 0x4) != 0)
+                        sourceTypes |= SourceTypes.Async;
+
+                    mappingDataEncoded >>= (int)bitsForSourceType;
+                    uint nativeOffsetDelta = (uint)(mappingDataEncoded & ((1UL << (int)bitsForNativeDelta) - 1));
+
+                    mappingDataEncoded >>= (int)bitsForNativeDelta;
+                    uint ilOffsetDelta = (uint)mappingDataEncoded;
+
+                    bounds.Add(new DebugInfoBoundsEntry
+                    {
+                        NativeOffsetDelta = nativeOffsetDelta,
+                        ILOffsetDelta = ilOffsetDelta,
+                        SourceTypes = sourceTypes
+                    });
                 }
             }
             else
             {
                 NibbleReader reader = new NibbleReader(imageReader, offset);
                 uint boundsEntryCount = reader.ReadUInt();
-                Debug.Assert(boundsEntryCount > 0);
+                if (boundsEntryCount == 0)
+                    throw new BadImageFormatException("Legacy debug bounds contain no entries.");
+                if (boundsEntryCount > int.MaxValue)
+                    throw new BadImageFormatException("Legacy debug bounds contain too many entries.");
 
-                uint previousNativeOffset = 0;
                 for (int i = 0; i < boundsEntryCount; ++i)
                 {
-                    previousNativeOffset += reader.ReadUInt();
                     var entry = new DebugInfoBoundsEntry()
                     {
-                        NativeOffset = previousNativeOffset,
-                        ILOffset = reader.ReadUInt() + (uint)DebugInfoBoundsType.MaxMappingValue,
+                        NativeOffsetDelta = reader.ReadUInt(),
+                        ILOffsetDelta = reader.ReadUInt(),
                         SourceTypes = (SourceTypes)reader.ReadUInt()
                     };
                     bounds.Add(entry);
@@ -199,23 +285,45 @@ public partial class ReadyToRunReader
 
         static void ParseNativeVarInfo(
             NativeReader imageReader,
-            int offset,
             Machine machine,
+            int nativeVarInfoVersion,
             List<NativeVarInfo> variables)
         {
-            NibbleReader reader = new NibbleReader(imageReader, offset);
+            NibbleReader reader = new NibbleReader(imageReader, offset: 0);
             uint nativeVarCount = reader.ReadUInt();
+            if (nativeVarCount > int.MaxValue)
+                throw new BadImageFormatException("Debug info contains too many native variable records.");
+            int implicitILAdjust = nativeVarInfoVersion switch
+            {
+                >= 22 => (int)ImplicitILArguments.MaxV22,
+                >= 20 => (int)ImplicitILArguments.MaxV20,
+                _ => (int)ImplicitILArguments.MaxV19,
+            };
 
             for (int i = 0; i < nativeVarCount; ++i)
             {
-                uint startOffset = reader.ReadUInt();
-                var entry = new NativeVarInfo()
+                var entry = new NativeVarInfo();
+
+                if (nativeVarInfoVersion >= 22)
                 {
-                    StartOffset = startOffset,
-                    EndOffset = startOffset + reader.ReadUInt(),
-                    VariableNumber = (uint)(reader.ReadUInt() + (int)ImplicitILArguments.Max),
-                    Variable = new Variable()
-                };
+                    entry.VariableNumber = ReadVariableNumber(reader, implicitILAdjust);
+                    entry.StartOffset = reader.ReadUInt();
+
+                    if (entry.VariableNumber == (int)ImplicitILArguments.CallReturnValue)
+                    {
+                        entry.CallReturnValueILOffset = reader.ReadUInt();
+                    }
+                    else
+                    {
+                        entry.RangeLength = reader.ReadUInt();
+                    }
+                }
+                else
+                {
+                    entry.StartOffset = reader.ReadUInt();
+                    entry.RangeLength = reader.ReadUInt();
+                    entry.VariableNumber = ReadVariableNumber(reader, implicitILAdjust);
+                }
 
                 var varLoc = new VarLoc();
                 varLoc.VarLocType = (VarLocType)reader.ReadUInt();
@@ -261,6 +369,14 @@ public partial class ReadyToRunReader
 
                 entry.VariableLocation = varLoc;
                 variables.Add(entry);
+            }
+
+            static int ReadVariableNumber(NibbleReader reader, int implicitILAdjust)
+            {
+                uint encodedVariableNumber = reader.ReadUInt();
+                if (encodedVariableNumber > int.MaxValue)
+                    throw new BadImageFormatException("Native variable number exceeds the supported range.");
+                return (int)encodedVariableNumber + implicitILAdjust;
             }
         }
 

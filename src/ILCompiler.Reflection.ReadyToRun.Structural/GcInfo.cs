@@ -22,47 +22,24 @@ public partial class ReadyToRunReader
     /// </remarks>
     public BaseGcInfo GetGcInfo(UnwindInfoRva handle)
     {
+        EnsureSemanticDecodingSupported(nameof(GetGcInfo));
+
         if (_gcInfoCache.TryGetValue(handle, out BaseGcInfo cached))
             return cached;
 
+        int gcInfoVersion = FormatProfile.GcInfoVersion;
         BaseGcInfo result;
-        try
+        if (Machine == Machine.I386)
         {
-            int gcInfoRva;
-            if (Machine == Machine.I386)
-            {
-                gcInfoRva = (int)handle;
-            }
-            else
-            {
-                var unwindInfo = GetUnwindInfo(handle);
-                if (unwindInfo is null)
-                {
-                    _gcInfoCache[handle] = null;
-                    return null;
-                }
-                gcInfoRva = (int)handle + unwindInfo.Size;
-            }
-
-            int gcInfoOffset = GetOffsetForRVA(gcInfoRva);
-
-            if (Machine == Machine.I386)
-            {
-                result = new x86.GcInfo(ImageReader, gcInfoOffset);
-            }
-            else
-            {
-                result = new Amd64.GcInfo(
-                    ImageReader,
-                    gcInfoOffset,
-                    Machine,
-                    ReadyToRunHeader.MajorVersion,
-                    ReadyToRunHeader.MinorVersion);
-            }
+            int gcInfoOffset = GetOffsetForRVA((int)handle);
+            result = new x86.GcInfo(ImageReader, gcInfoOffset, gcInfoVersion);
         }
-        catch
+        else
         {
-            result = null;
+            BaseUnwindInfo unwindInfo = GetUnwindInfo(handle);
+            int gcInfoRva = (int)handle + unwindInfo.Size;
+            int gcInfoOffset = GetOffsetForRVA(gcInfoRva);
+            result = new Amd64.GcInfo(ImageReader, gcInfoOffset, Machine, gcInfoVersion);
         }
 
         _gcInfoCache[handle] = result;

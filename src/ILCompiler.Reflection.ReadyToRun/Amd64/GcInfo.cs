@@ -37,11 +37,9 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
 
         public struct SafePointOffset
         {
-            public int Index { get; set; }
             public uint Value { get; set; }
-            public SafePointOffset(int index, uint value)
+            public SafePointOffset(uint value)
             {
-                Index = index;
                 Value = value;
             }
         }
@@ -87,10 +85,10 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
         /// <summary>
         /// based on <a href="https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/gcinfodecoder.cpp">GcInfoDecoder::GcInfoDecoder</a>
         /// </summary>
-        public GcInfo(NativeReader imageReader, int offset, Machine machine, ushort majorVersion, ushort minorVersion)
+        public GcInfo(NativeReader imageReader, int offset, Machine machine, int version)
         {
             Offset = offset;
-            Version = ReadyToRunVersionToGcInfoVersion(majorVersion, minorVersion);
+            Version = version;
             bool denormalizeCodeOffsets = Version > MIN_GCINFO_VERSION_WITH_NORMALIZED_CODE_OFFSETS;
             _gcInfoTypes = new GcInfoTypes(machine, denormalizeCodeOffsets);
             _machine = machine;
@@ -166,8 +164,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
                 ReversePInvokeFrameStackSlot = imageReader.DecodeVarLengthSigned(_gcInfoTypes.REVERSE_PINVOKE_FRAME_ENCBASE, ref bitOffset);
             }
 
-            // FIXED_STACK_PARAMETER_SCRATCH_AREA (this macro is always defined in _gcInfoTypes.h)
-            if (!_slimHeader)
+            if (_gcInfoTypes.HAS_FIXED_STACK_PARAMETER_SCRATCH_AREA && !_slimHeader)
             {
                 SizeOfStackOutgoingAndScratchArea = _gcInfoTypes.DenormalizeSizeOfStackArea(imageReader.DecodeVarLengthUnsigned(_gcInfoTypes.SIZE_OF_STACK_AREA_ENCBASE, ref bitOffset));
             }
@@ -287,9 +284,12 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
             sb.AppendLine($"    NumSafePoints: {NumSafePoints}");
             sb.AppendLine($"    NumInterruptibleRanges: {NumInterruptibleRanges}");
             sb.AppendLine($"    SafePointOffsets:");
-            foreach (SafePointOffset offset in SafePointOffsets)
+            for (int safePointIndex = 0; safePointIndex < SafePointOffsets.Count; safePointIndex++)
             {
-                IEnumerable<BaseGcSlot> liveSlotsForOffset = (LiveSlotsAtSafepoints != null ? LiveSlotsAtSafepoints[offset.Index] : Enumerable.Empty<BaseGcSlot>());
+                SafePointOffset offset = SafePointOffsets[safePointIndex];
+                IEnumerable<BaseGcSlot> liveSlotsForOffset = LiveSlotsAtSafepoints != null
+                    ? LiveSlotsAtSafepoints[safePointIndex]
+                    : Enumerable.Empty<BaseGcSlot>();
                 sb.Append($"        0x{offset.Value:X4}: ");
                 bool haveLiveSlots = false;
                 GcSlotFlags slotFlags = GcSlotFlags.GC_SLOT_INVALID;
@@ -360,7 +360,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
             for (int i = 0; i < NumSafePoints; i++)
             {
                 uint normOffset = (uint)imageReader.ReadBits((int)numBitsPerOffset, ref bitOffset);
-                safePoints.Add(new SafePointOffset(i, _gcInfoTypes.DenormalizeCodeOffset(normOffset)));
+                safePoints.Add(new SafePointOffset(_gcInfoTypes.DenormalizeCodeOffset(normOffset)));
             }
             return safePoints;
         }
@@ -388,27 +388,6 @@ namespace System.Reflection.Metadata.ReadyToRun.Amd64
                 normLastinterruptibleRangeStopOffset = normRangeStopOffset;
             }
             return ranges;
-        }
-
-        /// <summary>
-        /// GcInfo version is 1 up to ReadyTorun version 1.x.
-        /// GcInfo version is current from  ReadyToRun version 2.0
-        /// </summary>
-        private int ReadyToRunVersionToGcInfoVersion(int readyToRunMajorVersion, int readyToRunMinorVersion)
-        {
-            if (readyToRunMajorVersion == 1)
-                return 1;
-
-            // R2R 2.0+ uses GCInfo v2
-            // R2R 9.2+ uses GCInfo v3
-            if (readyToRunMajorVersion < 9 || (readyToRunMajorVersion == 9 && readyToRunMinorVersion < 2))
-                return 2;
-
-            // R2R 11.0+ uses GCInfo v4
-            if (readyToRunMajorVersion < 11)
-                return 3;
-
-            return 4;
         }
 
         private List<List<BaseGcSlot>> GetLiveSlotsAtSafepoints(NativeReader imageReader, ref int bitOffset)

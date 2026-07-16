@@ -36,6 +36,7 @@ namespace System.Reflection.Metadata.ReadyToRun.x86
         public byte GenericsContext { get; set; }// function reports a generics context parameter is present
         public byte GenericsContextIsMethodDesc { get; set; }
         public ReturnKinds ReturnKind { get; set; } // Available GcInfo v2 onwards, previously undefined
+        public bool IsAsync { get; set; } // Available GcInfo v5 onwards
         public ushort ArgCount { get; set; }
         public uint FrameSize { get; set; }
         public uint UntrackedCnt { get; set; }
@@ -53,7 +54,7 @@ namespace System.Reflection.Metadata.ReadyToRun.x86
 
         public InfoHdrSmall(uint prologSize, uint epilogSize, byte epilogCount, byte epilogAtEnd, byte ediSaved, byte esiSaved, byte ebxSaved, byte ebpSaved, byte ebpFrame,
             byte interruptible, byte doubleAlign, byte security, byte handlers, byte localloc, byte editNcontinue, byte varargs, byte profCallbacks,
-            byte genericsContext, byte genericsContextIsMethodDesc, byte returnKind, ushort argCount, uint frameSize, uint untrackedCnt, uint varPtrTableSize)
+            byte genericsContext, byte genericsContextIsMethodDesc, byte returnKind, ushort argCount, uint frameSize, uint untrackedCnt, uint varPtrTableSize, byte isAsync = 0)
         {
             PrologSize = prologSize;
             EpilogSize = epilogSize;
@@ -75,6 +76,7 @@ namespace System.Reflection.Metadata.ReadyToRun.x86
             GenericsContext = genericsContext;
             GenericsContextIsMethodDesc = genericsContextIsMethodDesc;
             ReturnKind = (ReturnKinds)returnKind;
+            IsAsync = isAsync == 1;
             ArgCount = argCount;
             FrameSize = frameSize;
             UntrackedCnt = untrackedCnt;
@@ -182,11 +184,14 @@ namespace System.Reflection.Metadata.ReadyToRun.x86
         /// Initialize the GcInfo header
         /// based on <a href="https://github.com/dotnet/runtime/blob/main/src/coreclr/inc/gcdecoder.cpp">src\inc\gcdecoder.cpp</a> DecodeHeader and <a href="https://github.com/dotnet/runtime/blob/main/src/coreclr/gcdump/i386/gcdumpx86.cpp">GCDump::DumpInfoHdr</a>
         /// </summary>
-        public static InfoHdrSmall DecodeHeader(NativeReader imageReader, ref int offset, int codeLength)
+        public static InfoHdrSmall DecodeHeader(NativeReader imageReader, ref int offset, int codeLength, int version)
         {
             byte nextByte = imageReader.ReadByte(ref offset);
             byte encoding = (byte)(nextByte & 0x7f);
             InfoHdrSmall header = GetInfoHdr(encoding);
+            InfoHdrAdjustConstants setRetKindMax = version >= 5 ? InfoHdrAdjustConstants.SET_RET_KIND_MAX_V5 : InfoHdrAdjustConstants.SET_RET_KIND_MAX_V4;
+            InfoHdrAdjust2 setNoGcRegionsCnt = version >= 5 ? InfoHdrAdjust2.SET_NOGCREGIONS_CNT_V5 : InfoHdrAdjust2.SET_NOGCREGIONS_CNT_V4;
+            InfoHdrAdjust2 ffffNoGcRegionCnt = version >= 5 ? InfoHdrAdjust2.FFFF_NOGCREGION_CNT_V5 : InfoHdrAdjust2.FFFF_NOGCREGION_CNT_V4;
             while ((nextByte & (uint)InfoHdrAdjustConstants.MORE_BYTES_TO_FOLLOW) != 0)
             {
                 nextByte = imageReader.ReadByte(ref offset);
@@ -288,15 +293,23 @@ namespace System.Reflection.Metadata.ReadyToRun.x86
                                 nextByte = imageReader.ReadByte(ref offset);
                                 encoding = (byte)(nextByte & (int)InfoHdrAdjustConstants.ADJ_ENCODING_MAX);
                                 // encoding here always corresponds to codes in InfoHdrAdjust2 set
-                                if (encoding <= (int)InfoHdrAdjustConstants.SET_RET_KIND_MAX)
+                                if (encoding <= (int)setRetKindMax)
                                 {
-                                    header.ReturnKind = (ReturnKinds)encoding;
+                                    if (version >= 5)
+                                    {
+                                        header.ReturnKind = (ReturnKinds)(encoding & 3);
+                                        header.IsAsync = (encoding & 4) != 0;
+                                    }
+                                    else
+                                    {
+                                        header.ReturnKind = (ReturnKinds)encoding;
+                                    }
                                 }
-                                else if (encoding < (int)InfoHdrAdjust2.FFFF_NOGCREGION_CNT)
+                                else if (encoding < (int)ffffNoGcRegionCnt)
                                 {
-                                    header.NoGCRegionCnt = (uint)encoding - (uint)InfoHdrAdjust2.SET_NOGCREGIONS_CNT;
+                                    header.NoGCRegionCnt = (uint)encoding - (uint)setNoGcRegionsCnt;
                                 }
-                                else if (encoding == (int)InfoHdrAdjust2.FFFF_NOGCREGION_CNT)
+                                else if (encoding == (int)ffffNoGcRegionCnt)
                                 {
                                     header.NoGCRegionCnt = HAS_NOGCREGIONS;
                                 }
