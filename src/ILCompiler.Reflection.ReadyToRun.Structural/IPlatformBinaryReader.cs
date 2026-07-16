@@ -54,5 +54,20 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <param name="offset">File offset of the manifest metadata section.</param>
         /// <param name="size">Size of the manifest metadata section in bytes.</param>
         MetadataReader GetManifestAssemblyMetadata(int offset, int size);
+
+        /// <summary>
+        /// Attempts to convert a relocated image virtual address (VA) to a file offset.
+        /// In a PE image the VA = preferred ImageBase + RVA, so this subtracts the preferred
+        /// ImageBase and calls <see cref="GetOffset"/>.
+        /// </summary>
+        /// <param name="imageVA">The virtual address as stored in the (unrelocated) image.</param>
+        /// <param name="fileOffset">On success, the corresponding file offset; otherwise 0.</param>
+        /// <returns>
+        /// <see langword="true"/> when the conversion succeeded;
+        /// <see langword="false"/> when the platform reader does not support VA-to-offset
+        /// conversion (e.g. Webcil / WASM) or when <paramref name="imageVA"/> does not fall
+        /// inside any known section.
+        /// </returns>
+        bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset);
     }
 }

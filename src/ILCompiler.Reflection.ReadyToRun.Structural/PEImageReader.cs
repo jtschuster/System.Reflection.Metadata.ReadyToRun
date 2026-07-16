@@ -88,5 +88,28 @@ namespace System.Reflection.Metadata.ReadyToRun
             byte* pImage = _peReader.GetEntireImage().Pointer;
             return new MetadataReader(pImage + offset, size);
         }
+
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        {
+            ulong imageBase = _peReader.PEHeaders.PEHeader.ImageBase;
+            fileOffset = 0;
+
+            if (imageVA <= 0 || (ulong)imageVA < imageBase)
+                return false;
+
+            long rva = imageVA - (long)imageBase;
+            if (rva < 0 || rva > int.MaxValue)
+                return false;
+
+            try
+            {
+                fileOffset = _peReader.GetOffset((int)rva);
+                return true;
+            }
+            catch (BadImageFormatException)
+            {
+                return false;
+            }
+        }
     }
 }

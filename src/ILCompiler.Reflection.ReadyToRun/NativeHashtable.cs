@@ -394,7 +394,13 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
         }
 
-        private IEnumerable<ushort[]> GetBuckets()
+        /// <summary>Number of 16-byte buckets in the filter (each holds 8 ushort fingerprints).</summary>
+        public int BucketCount => (_filterEndOffset - _filterStartOffset) / 16;
+
+        /// <summary>
+        /// Enumerates all buckets. Each bucket is an array of 8 little-endian fingerprints.
+        /// </summary>
+        public IEnumerable<ushort[]> GetBuckets()
         {
             int offset = _filterStartOffset;
             while (offset < _filterEndOffset)
@@ -406,6 +412,51 @@ namespace System.Reflection.Metadata.ReadyToRun
                 }
                 yield return bucket;
             }
+        }
+
+        /// <summary>
+        /// Returns true when the filter <em>may</em> contain an entry with the given
+        /// <paramref name="hashcode"/> and <paramref name="fingerprint"/>.
+        /// False positives are possible; false negatives are not.
+        /// An empty filter (BucketCount == 0) always returns false.
+        /// </summary>
+        /// <remarks>
+        /// Algorithm mirrors <c>NativeCuckooFilter::MayExist</c> in
+        /// <c>src/coreclr/vm/nativeformatreader.h</c>.
+        /// ComputeFingerprintHash is identity (fingerprint == its own hash).
+        /// </remarks>
+        public bool MayContain(uint hashcode, ushort fingerprint)
+        {
+            if (fingerprint == 0)
+                fingerprint = 1; // fingerprints of 0 are not stored; use 1
+
+            int bucketCount = BucketCount;
+            if (bucketCount == 0)
+                return false; // empty table — no attributes exist
+
+            uint bucketMask = (uint)(bucketCount - 1); // count is a power of two
+            uint bucketAIndex = hashcode & bucketMask;
+            uint bucketBIndex = bucketAIndex ^ (fingerprint & bucketMask);
+
+            // Check bucket A
+            int offsetA = _filterStartOffset + (int)(bucketAIndex * 16);
+            for (int i = 0; i < 8; i++)
+            {
+                int off = offsetA + i * 2;
+                if (_imageReader.ReadUInt16(ref off) == fingerprint)
+                    return true;
+            }
+
+            // Check bucket B
+            int offsetB = _filterStartOffset + (int)(bucketBIndex * 16);
+            for (int i = 0; i < 8; i++)
+            {
+                int off = offsetB + i * 2;
+                if (_imageReader.ReadUInt16(ref off) == fingerprint)
+                    return true;
+            }
+
+            return false;
         }
 
         public override string ToString()

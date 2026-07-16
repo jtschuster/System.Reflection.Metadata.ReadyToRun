@@ -214,6 +214,16 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[offset]), size);
         }
 
+        /// <summary>
+        /// Webcil images do not have a PE ImageBase, so VA-to-offset conversion
+        /// is not supported. Always returns <see langword="false"/>.
+        /// </summary>
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        {
+            fileOffset = 0;
+            return false;
+        }
+
         private void ReadCorHeader(out CorFlags flags, out DirectoryEntry metadataDirectory, out DirectoryEntry managedNativeHeaderDirectory)
         {
             ReadOnlySpan<byte> image = _image;

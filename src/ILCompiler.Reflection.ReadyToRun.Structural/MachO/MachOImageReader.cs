@@ -102,6 +102,16 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
             return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[offset]), size);
         }
 
+        /// <summary>
+        /// Mach-O images do not expose a PE ImageBase, so VA-to-offset conversion
+        /// is not supported. Always returns <see langword="false"/>.
+        /// </summary>
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        {
+            fileOffset = 0;
+            return false;
+        }
+
         private static Machine GetMachineType(uint cpuType)
         {
             // https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/mach/machine.h
