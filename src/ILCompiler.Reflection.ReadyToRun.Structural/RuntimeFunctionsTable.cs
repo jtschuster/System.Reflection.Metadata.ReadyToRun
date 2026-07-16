@@ -88,7 +88,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// This may differ from the raw code RVA by an architecture-specific code bit
     /// such as the ARM Thumb bit.
     /// </summary>
-    public enum PCode {}
+    public enum PCode : uint {}
 
     /// <summary>Opaque handle representing an RVA pointing to code in the image.</summary>
     public enum CodeRva : uint {}

@@ -61,7 +61,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>Opaque handle representing an RVA pointing to the start of a ReadyToRun section.</summary>
-    public enum ImageRVA {}
+    public enum ImageRVA : uint {}
 
     /// <summary>
     /// Opaque handle representing the raw RVA of the DelayLoadMethodCallThunks section.

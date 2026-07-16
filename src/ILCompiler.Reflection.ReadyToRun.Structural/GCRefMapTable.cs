@@ -32,7 +32,7 @@ public readonly struct GCRefMapEntry
     /// <summary>GC reference type at this position.</summary>
     public GCRefMapToken Token { get; }
 
-    public GCRefMapEntry(int position, GCRefMapToken token)
+    internal GCRefMapEntry(int position, GCRefMapToken token)
     {
         Position = position;
         Token = token;
