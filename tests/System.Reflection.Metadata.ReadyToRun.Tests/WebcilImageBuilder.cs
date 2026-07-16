@@ -66,7 +66,8 @@ namespace System.Reflection.Metadata.ReadyToRun.Tests
             IReadOnlyList<R2RSectionSpec> sections,
             byte[]? metadata = null,
             ushort webcilVersionMajor = 1,
-            bool splitSections = false)
+            bool splitSections = false,
+            uint r2rFlags = 0)
         {
             int r2rHeaderSize = 16 + sections.Count * 12;
             uint restVA = splitSections ? SecondSectionVirtualAddress : SectionVirtualAddress + CorHeaderSize;
@@ -100,7 +101,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Tests
             BinaryPrimitives.WriteUInt32LittleEndian(r2r.Slice(0), R2RSignature);
             BinaryPrimitives.WriteUInt16LittleEndian(r2r.Slice(4), r2rMajorVersion);
             BinaryPrimitives.WriteUInt16LittleEndian(r2r.Slice(6), r2rMinorVersion);
-            BinaryPrimitives.WriteUInt32LittleEndian(r2r.Slice(8), 0);                  // Flags
+            BinaryPrimitives.WriteUInt32LittleEndian(r2r.Slice(8), r2rFlags);           // Flags
             BinaryPrimitives.WriteInt32LittleEndian(r2r.Slice(12), sections.Count);     // nSections
             int entry = 16;
             for (int i = 0; i < sections.Count; i++)

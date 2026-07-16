@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 
 using Internal.ReadyToRunConstants;
@@ -49,7 +50,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Mirrors <c>READYTORUN_MAJOR_VERSION</c> in <c>src/coreclr/inc/readytorun.h</c>.
         /// Bump in lockstep with that constant when adding support for a newer format.
         /// </summary>
-        public const ushort MAXIMUM_SUPPORTED_MAJOR_VERSION = 18;
+        public const ushort MAXIMUM_SUPPORTED_MAJOR_VERSION = 24;
 
         public uint Signature { get; }
 
@@ -58,6 +59,9 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public ushort MajorVersion { get; set; }
         public ushort MinorVersion { get; set; }
+
+        /// <summary>Whether this reader has a semantic profile for the encoded version.</summary>
+        public ReadyToRunFormatSupport FormatSupport { get; }
 
         // READYTORUN_CORE_HEADER fields
 
@@ -80,6 +84,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             MinorVersion = minorVersion;
             Flags = flags;
             Sections = sections;
+            FormatSupport = ReadyToRunFormatProfile.Create(majorVersion, minorVersion).Support;
         }
 
 
@@ -114,26 +119,33 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <exception cref="BadImageFormatException">The signature must be 0x00525452 ("RTR")</exception>
         public ReadyToRunHeader ReadReadyToRunHeader(int imageOffset)
         {
-            var Signature = _nativeReader.ReadUInt32(ref imageOffset);
-            if (Signature != ReadyToRunHeader.READYTORUN_SIGNATURE)
+            try
             {
-                byte[] signature = new byte[sizeof(uint) - 1];
-                _nativeReader.ReadSpanAt(ref imageOffset, signature);
-                throw new BadImageFormatException("Incorrect R2R header signature: " + Encoding.UTF8.GetString(signature));
+                uint signature = _nativeReader.ReadUInt32(ref imageOffset);
+                if (signature != ReadyToRunHeader.READYTORUN_SIGNATURE)
+                    throw new BadImageFormatException($"Incorrect R2R header signature: 0x{signature:X8}.");
+
+                ushort majorVersion = _nativeReader.ReadUInt16(ref imageOffset);
+                ushort minorVersion = _nativeReader.ReadUInt16(ref imageOffset);
+                ReadyToRunFormatProfile profile = ReadyToRunFormatProfile.Create(majorVersion, minorVersion);
+                if (ValidationMode == ReadyToRunValidationMode.Strict && !profile.IsSupported)
+                {
+                    throw new NotSupportedException(
+                        $"ReadyToRun format version {majorVersion}.{minorVersion} is not a known CoreCLR format revision.");
+                }
+
+                ReadyToRunCoreHeader coreHeader = ReadReadyToRunCoreHeader(ref imageOffset, profile);
+                return new ReadyToRunHeader(signature, majorVersion, minorVersion, coreHeader.Flags, coreHeader.Sections);
             }
-
-            var MajorVersion = _nativeReader.ReadUInt16(ref imageOffset);
-            var MinorVersion = _nativeReader.ReadUInt16(ref imageOffset);
-
-            if (MajorVersion > ReadyToRunHeader.MAXIMUM_SUPPORTED_MAJOR_VERSION)
+            catch (ArgumentOutOfRangeException exception)
             {
                 throw new BadImageFormatException(
-                    $"R2R header major version {MajorVersion}.{MinorVersion} is newer than the maximum supported version " +
-                    $"({ReadyToRunHeader.MAXIMUM_SUPPORTED_MAJOR_VERSION}.x). The image may contain format changes this reader does not understand.");
+                    "ReadyToRun header or section directory extends outside the image.", exception);
             }
-
-            var coreHeader = ReadReadyToRunCoreHeader(ref imageOffset);
-            return new ReadyToRunHeader(Signature, MajorVersion, MinorVersion, coreHeader.Flags, coreHeader.Sections);
+            catch (EndOfStreamException exception)
+            {
+                throw new BadImageFormatException("ReadyToRun header or section directory is truncated.", exception);
+            }
         }
 
         /// <summary>
@@ -141,22 +153,49 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// and per-assembly headers in composite R2R images.
         /// </summary>
         public ReadyToRunCoreHeader ReadReadyToRunCoreHeader(ref int curOffset)
+            => ReadReadyToRunCoreHeader(ref curOffset, FormatProfile);
+
+        private ReadyToRunCoreHeader ReadReadyToRunCoreHeader(
+            ref int curOffset,
+            ReadyToRunFormatProfile profile)
         {
             uint flags = _nativeReader.ReadUInt32(ref curOffset);
-            int nSections = _nativeReader.ReadInt32(ref curOffset);
-            var sections = new List<ReadyToRunSection>(nSections);
+            profile.ValidateHeader(flags, ValidationMode);
 
-            for (int i = 0; i < nSections; i++)
+            uint sectionCount = _nativeReader.ReadUInt32(ref curOffset);
+            long directorySize = sectionCount * 12L;
+            if (directorySize > _nativeReader.Length - curOffset || sectionCount > int.MaxValue)
+                throw new BadImageFormatException("ReadyToRun section count exceeds the available directory data.");
+
+            int sectionCountInt = (int)sectionCount;
+            var sections = new List<ReadyToRunSection>(sectionCountInt);
+            int previousType = int.MinValue;
+
+            for (int i = 0; i < sectionCountInt; i++)
             {
                 int type = _nativeReader.ReadInt32(ref curOffset);
                 var sectionType = (ReadyToRunSectionType)type;
-                if (!Enum.IsDefined(typeof(ReadyToRunSectionType), type))
+                if (ValidationMode == ReadyToRunValidationMode.Strict &&
+                    !ReadyToRunFormatProfile.IsKnownCoreClrSectionType(type))
                 {
-                    throw new BadImageFormatException("Warning: Invalid ReadyToRun section type");
+                    throw new NotSupportedException($"ReadyToRun section type {type} is not a known CoreCLR section.");
                 }
-                int sectionStartRva = _nativeReader.ReadInt32(ref curOffset);
-                int sectionLength = _nativeReader.ReadInt32(ref curOffset);
-                sections.Add(new ReadyToRunSection(sectionType, (ImageRVA)sectionStartRva, sectionLength));
+
+                if (type <= previousType)
+                    throw new BadImageFormatException("ReadyToRun section directory must be strictly ordered by section type.");
+                previousType = type;
+
+                uint sectionStartRva = _nativeReader.ReadUInt32(ref curOffset);
+                uint sectionLength = _nativeReader.ReadUInt32(ref curOffset);
+                if (sectionStartRva > int.MaxValue || sectionLength > int.MaxValue)
+                {
+                    throw new NotSupportedException(
+                        $"ReadyToRun section {type} exceeds the reader's 31-bit RVA or size range.");
+                }
+
+                var section = new ReadyToRunSection(sectionType, (ImageRVA)sectionStartRva, (int)sectionLength);
+                ValidateAndGetSectionOffset(section);
+                sections.Add(section);
             }
             return new ReadyToRunCoreHeader(flags, sections);
         }

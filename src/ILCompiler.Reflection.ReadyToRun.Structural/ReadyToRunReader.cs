@@ -4,8 +4,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 using Internal.ReadyToRunConstants;
 using Internal.Runtime;
@@ -24,16 +26,23 @@ namespace System.Reflection.Metadata.ReadyToRun
         private readonly IPlatformBinaryReader _platformBinaryReader;
         private readonly NativeReader _nativeReader;
         private readonly string _filename;
+        private readonly ReadyToRunReaderOptions _options;
 
         // Lazy-init backing fields
         private ReadyToRunHeader _header;
+        private ReadyToRunFormatProfile _formatProfile;
         private bool? _isComposite;
 
-        public ReadyToRunReader(IPlatformBinaryReader platformBinaryReader, NativeReader nativeReader, string filename = null)
+        public ReadyToRunReader(
+            IPlatformBinaryReader platformBinaryReader,
+            NativeReader nativeReader,
+            string filename = null,
+            ReadyToRunReaderOptions options = null)
         {
-            _platformBinaryReader = platformBinaryReader;
-            _nativeReader = nativeReader;
+            _platformBinaryReader = platformBinaryReader ?? throw new ArgumentNullException(nameof(platformBinaryReader));
+            _nativeReader = nativeReader ?? throw new ArgumentNullException(nameof(nativeReader));
             _filename = filename ?? string.Empty;
+            _options = options ?? ReadyToRunReaderOptions.Default;
         }
 
         public void Dispose()
@@ -48,6 +57,22 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Filename of the R2R image being read.</summary>
         public string Filename => _filename;
 
+        /// <summary>Validation policy used by this reader.</summary>
+        public ReadyToRunValidationMode ValidationMode => _options.ValidationMode;
+
+        /// <summary>Whether the parsed header version has a known semantic format profile.</summary>
+        public ReadyToRunFormatSupport FormatSupport => FormatProfile.Support;
+
+        internal ReadyToRunFormatProfile FormatProfile
+        {
+            get
+            {
+                if (_formatProfile is null)
+                    GetHeader();
+                return _formatProfile;
+            }
+        }
+
         /// <summary>
         /// Whether component assembly indices in the manifest start at 2 (V6+).
         /// In older formats they start at 1.
@@ -56,7 +81,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         {
             get
             {
-                return GetHeader().MajorVersion >= 6;
+                EnsureSemanticDecodingSupported(nameof(ComponentAssemblyIndicesStartAtTwo));
+                return FormatProfile.ComponentAssemblyIndexOffset == 2;
             }
         }
 
@@ -134,35 +160,123 @@ namespace System.Reflection.Metadata.ReadyToRun
             _isComposite = isComposite;
             int headerOffset = GetOffsetForRVA(headerRva);
             _header = ReadReadyToRunHeader(headerOffset);
+            _formatProfile = ReadyToRunFormatProfile.Create(_header.MajorVersion, _header.MinorVersion);
             return _header;
         }
+
+        /// <summary>
+        /// Copies the exact bytes described by a section directory entry without interpreting the payload.
+        /// This remains available for unknown future R2R versions in tolerant mode.
+        /// </summary>
+        public byte[] GetSectionBytes(ReadyToRunSection section)
+        {
+            int offset = ValidateAndGetSectionOffset(section);
+            byte[] bytes = new byte[section.Size];
+            try
+            {
+                _nativeReader.ReadSpanAt(ref offset, bytes);
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                throw new BadImageFormatException(
+                    $"ReadyToRun section {(int)section.Type} extends outside the image.", exception);
+            }
+            catch (EndOfStreamException exception)
+            {
+                throw new BadImageFormatException(
+                    $"ReadyToRun section {(int)section.Type} is truncated.", exception);
+            }
+            return bytes;
+        }
+
+        internal int ValidateAndGetSectionOffset(ReadyToRunSection section)
+        {
+            if (section.Size < 0)
+                throw new BadImageFormatException($"ReadyToRun section {(int)section.Type} has a negative size.");
+
+            if (section.Size == 0)
+                return 0;
+
+            uint rva = (uint)section.RelativeVirtualAddress;
+            if (rva > int.MaxValue)
+                throw new NotSupportedException($"ReadyToRun section RVA 0x{rva:X8} exceeds the reader's address range.");
+
+            uint lastRva;
+            try
+            {
+                lastRva = checked(rva + (uint)section.Size - 1);
+            }
+            catch (OverflowException exception)
+            {
+                throw new BadImageFormatException(
+                    $"ReadyToRun section {(int)section.Type} RVA and size overflow.", exception);
+            }
+
+            if (lastRva > int.MaxValue)
+                throw new NotSupportedException($"ReadyToRun section end RVA 0x{lastRva:X8} exceeds the reader's address range.");
+
+            int startOffset = GetOffsetForRVA((int)rva);
+            int endOffset = GetOffsetForRVA((int)lastRva);
+            long expectedEndOffset = (long)startOffset + section.Size - 1;
+            if (endOffset != expectedEndOffset || startOffset < 0 || expectedEndOffset >= _nativeReader.Length)
+            {
+                throw new BadImageFormatException(
+                    $"ReadyToRun section {(int)section.Type} does not map to a contiguous in-image byte range.");
+            }
+
+            return startOffset;
+        }
+
+        internal void EnsureSemanticDecodingSupported(string operation)
+            => FormatProfile.EnsureSemanticDecodingSupported(operation);
 
         /// <summary>Gets the compiler identifier string from a CompilerIdentifier section.</summary>
         public string GetCompilerIdentifier(ReadyToRunSection section)
         {
-            if (section.Size <= 1)
-                return string.Empty;
-
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            byte[] bytes = new byte[section.Size - 1];
-            for (int i = 0; i < bytes.Length; i++)
-                bytes[i] = _nativeReader.ReadByte(ref offset);
-
-            return System.Text.Encoding.UTF8.GetString(bytes);
+            EnsureSemanticDecodingSupported(nameof(GetCompilerIdentifier));
+            return GetNullTerminatedUtf8String(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.CompilerIdentifier,
+                nameof(GetCompilerIdentifier),
+                nullTerminated: false);
         }
 
         /// <summary>Gets the owner composite executable filename from an OwnerCompositeExecutable section.</summary>
         public string GetOwnerCompositeExecutable(ReadyToRunSection section)
         {
-            if (section.Size <= 1)
+            EnsureSemanticDecodingSupported(nameof(GetOwnerCompositeExecutable));
+            return GetNullTerminatedUtf8String(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.OwnerCompositeExecutable,
+                nameof(GetOwnerCompositeExecutable),
+                nullTerminated: true);
+        }
+
+        private string GetNullTerminatedUtf8String(
+            ReadyToRunSection section,
+            Internal.Runtime.ReadyToRunSectionType expectedType,
+            string operation,
+            bool nullTerminated)
+        {
+            if (section.Type != expectedType)
+                throw new ArgumentException($"{operation} requires a {expectedType} section.", nameof(section));
+
+            byte[] bytes = GetSectionBytes(section);
+            if (bytes.Length == 0)
                 return string.Empty;
+            if (nullTerminated && bytes[^1] != 0)
+                throw new BadImageFormatException($"{expectedType} section is not null terminated.");
 
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            byte[] bytes = new byte[section.Size - 1];
-            for (int i = 0; i < bytes.Length; i++)
-                bytes[i] = _nativeReader.ReadByte(ref offset);
-
-            return System.Text.Encoding.UTF8.GetString(bytes);
+            int byteCount = bytes[^1] == 0 ? bytes.Length - 1 : bytes.Length;
+            try
+            {
+                return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
+                    .GetString(bytes, 0, byteCount);
+            }
+            catch (DecoderFallbackException exception)
+            {
+                throw new BadImageFormatException($"{expectedType} section contains invalid UTF-8.", exception);
+            }
         }
 
         /// <summary>
@@ -183,6 +297,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public MetadataReader GetManifestMetadataReader(ReadyToRunSection manifestSection)
         {
+            EnsureSemanticDecodingSupported(nameof(GetManifestMetadataReader));
             int manifestOffset = GetOffsetForRVA(manifestSection.RelativeVirtualAddress);
             int manifestSize = manifestSection.Size;
             if (manifestSize <= 0)

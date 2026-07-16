@@ -17,6 +17,9 @@ namespace System.Reflection.Metadata.ReadyToRun
         private readonly Stream _backingStream = backingStream;
         private readonly bool _littleEndian = littleEndian;
 
+        /// <summary>Length of the underlying image in bytes.</summary>
+        public long Length => _backingStream.Length;
+
         /// <summary>
         /// Reads a byte from the image at the specified index
         /// </summary>
@@ -35,7 +38,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </remarks>
         public void ReadSpanAt(ref int start, Span<byte> buffer)
         {
-            if (start < 0 || start + buffer.Length > _backingStream.Length)
+            if (start < 0 || buffer.Length > _backingStream.Length - start)
                 throw new ArgumentOutOfRangeException(nameof(start), "Start index is out of bounds");
 
             _backingStream.Seek(start, SeekOrigin.Begin);
