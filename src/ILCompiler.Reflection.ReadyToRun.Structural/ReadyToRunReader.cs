@@ -73,6 +73,16 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
         }
 
+        internal ReadyToRunSignatureDecodingOptions SignatureDecodingOptions
+        {
+            get
+            {
+                ReadyToRunHeader header = GetHeader();
+                EnsureSemanticDecodingSupported("ReadyToRun signature decoding");
+                return ReadyToRunSignatureCompatibility.FromHeader(header, ValidationMode);
+            }
+        }
+
         /// <summary>
         /// Whether component assembly indices in the manifest start at 2 (V6+).
         /// In older formats they start at 1.
@@ -351,9 +361,16 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <param name="signatureRva">The RVA of the signature in the image.</param>
         /// <returns>The decoded fixup signature AST node.</returns>
         public R2RFixupSignature DecodeFixupSignature(int signatureRva)
+            => DecodeFixupSignature(signatureRva, SignatureDecodingOptions);
+
+        /// <summary>
+        /// Decode a fixup signature using explicit ReadyToRun version and validation settings
+        /// instead of the current image header and reader validation mode.
+        /// </summary>
+        public R2RFixupSignature DecodeFixupSignature(int signatureRva, IReadyToRunSignatureDecodingOptions options)
         {
             int offset = _platformBinaryReader.GetOffset(signatureRva);
-            R2RSignature signature = RawSignatureDecoder.DecodeFixupSignature(_nativeReader, offset, TargetPointerSize);
+            R2RSignature signature = RawSignatureDecoder.DecodeFixupSignature(_nativeReader, offset, TargetPointerSize, options);
             return R2RFixupSignature.FromSignature(signature);
         }
     }

@@ -51,6 +51,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Bump in lockstep with that constant when adding support for a newer format.
         /// </summary>
         public const ushort MAXIMUM_SUPPORTED_MAJOR_VERSION = 24;
+        public const ushort MAXIMUM_SUPPORTED_MINOR_VERSION = 0;
 
         public uint Signature { get; }
 

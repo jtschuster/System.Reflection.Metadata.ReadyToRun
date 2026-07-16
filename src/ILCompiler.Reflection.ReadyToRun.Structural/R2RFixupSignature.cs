@@ -53,6 +53,8 @@ public sealed partial class R2RFixupSignature
     }
 }
 
+public sealed record R2RInjectStringThunkEntry(string LookupString, int ThunkRva);
+
 /// <summary>
 /// Base class for fixup signature payloads. Each subclass represents a different
 /// payload shape corresponding to one or more fixup kinds.
@@ -139,11 +141,24 @@ public sealed class R2RTokenFixupPayload : R2RFixupPayload
 /// </summary>
 public sealed class R2RHelperFixupPayload : R2RFixupPayload
 {
-    public ReadyToRunHelper HelperId { get; }
+    public uint RawHelperId { get; }
 
-    public R2RHelperFixupPayload(ReadyToRunHelper helperId) => HelperId = helperId;
+    public ReadyToRunHelper HelperId => (ReadyToRunHelper)RawHelperId;
 
-    public override void AppendTo(StringBuilder sb) => sb.Append(HelperId.ToString());
+    public R2RHelperFixupPayload(ReadyToRunHelper helperId)
+        : this((uint)helperId)
+    {
+    }
+
+    public R2RHelperFixupPayload(uint rawHelperId) => RawHelperId = rawHelperId;
+
+    public override void AppendTo(StringBuilder sb)
+    {
+        if (ReadyToRunSignatureCompatibility.IsKnownHelperId(RawHelperId))
+            sb.Append(HelperId.ToString());
+        else
+            sb.Append($"0x{RawHelperId:X}");
+    }
 }
 
 /// <summary>
@@ -415,6 +430,31 @@ public sealed class R2RStubEntryPointFixupPayload : R2RFixupPayload
 }
 
 /// <summary>
+/// Payload for READYTORUN_FIXUP_InjectStringThunks.
+/// </summary>
+public sealed class R2RInjectStringThunksFixupPayload : R2RFixupPayload
+{
+    public ImmutableArray<R2RInjectStringThunkEntry> Entries { get; }
+
+    public R2RInjectStringThunksFixupPayload(ImmutableArray<R2RInjectStringThunkEntry> entries) => Entries = entries;
+
+    public override void AppendTo(StringBuilder sb)
+    {
+        sb.Append('[');
+        for (int i = 0; i < Entries.Length; i++)
+        {
+            if (i > 0)
+                sb.Append(", ");
+            sb.Append('"');
+            sb.Append(Entries[i].LookupString);
+            sb.Append("\"->RVA:0x");
+            sb.Append(Entries[i].ThunkRva.ToString("X8"));
+        }
+        sb.Append(']');
+    }
+}
+
+/// <summary>
 /// Payload for field offset fixup (non-check variant).
 /// Used by: FieldOffset.
 /// </summary>
@@ -428,13 +468,14 @@ public sealed class R2RFieldOffsetValueFixupPayload : R2RFixupPayload
 }
 
 /// <summary>
-/// Empty payload for fixup kinds that have no additional data, or for unrecognized kinds.
+/// Opaque payload handle for tolerant decoding of an unknown fixup kind whose payload length is
+/// not self-describing.
 /// </summary>
-public sealed class R2REmptyFixupPayload : R2RFixupPayload
+public sealed class R2ROpaqueFixupPayload : R2RFixupPayload
 {
-    public static R2REmptyFixupPayload Instance { get; } = new();
+    public int PayloadOffset { get; }
 
-    private R2REmptyFixupPayload() { }
+    public R2ROpaqueFixupPayload(int payloadOffset) => PayloadOffset = payloadOffset;
 
-    public override void AppendTo(StringBuilder sb) { }
+    public override void AppendTo(StringBuilder sb) => sb.Append($"opaque-payload@0x{PayloadOffset:X}");
 }

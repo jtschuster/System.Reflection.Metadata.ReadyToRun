@@ -39,7 +39,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         public void ReadSpanAt(ref int start, Span<byte> buffer)
         {
             if (start < 0 || buffer.Length > _backingStream.Length - start)
-                throw new ArgumentOutOfRangeException(nameof(start), "Start index is out of bounds");
+                throw new BadImageFormatException("offset out of bounds");
 
             _backingStream.Seek(start, SeekOrigin.Begin);
             _backingStream.ReadExactly(buffer);

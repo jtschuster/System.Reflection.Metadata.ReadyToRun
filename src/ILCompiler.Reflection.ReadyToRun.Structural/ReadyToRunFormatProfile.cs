@@ -3,6 +3,8 @@
 
 using System;
 
+using Internal.ReadyToRunConstants;
+
 namespace System.Reflection.Metadata.ReadyToRun
 {
     /// <summary>
@@ -36,6 +38,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         public int ComponentAssemblyIndexOffset => IsAtLeast(6, 3) ? 2 : 1;
 
         public bool SupportsMethodSignatureUpdateContext => IsAtLeast(5, 4);
+
+        public bool SupportsMethodSignatureAsyncVariant => IsAtLeast(24, 0);
 
         public bool UsesPackedDebugBounds => IsAtLeast(16, 0);
 
@@ -74,6 +78,45 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         public bool IsAtLeast(ushort majorVersion, ushort minorVersion)
             => MajorVersion > majorVersion || (MajorVersion == majorVersion && MinorVersion >= minorVersion);
+
+        public bool SupportsFixupKind(ReadyToRunFixupKind fixupKind)
+        {
+            return fixupKind switch
+            {
+                ReadyToRunFixupKind.Check_VirtualFunctionOverride or
+                    ReadyToRunFixupKind.Verify_VirtualFunctionOverride => IsAtLeast(5, 4),
+                ReadyToRunFixupKind.Check_IL_Body or
+                    ReadyToRunFixupKind.Verify_IL_Body => IsAtLeast(6, 3),
+                ReadyToRunFixupKind.InjectStringThunks => IsAtLeast(18, 6),
+                ReadyToRunFixupKind.ContinuationLayout or
+                    ReadyToRunFixupKind.ResumptionStubEntryPoint => IsAtLeast(24, 0),
+                _ => true,
+            };
+        }
+
+        public bool SupportsHelper(ReadyToRunHelper helper)
+        {
+            return helper switch
+            {
+                ReadyToRunHelper.NewMaybeFrozenArray or
+                    ReadyToRunHelper.NewMaybeFrozenObject => IsAtLeast(9, 1),
+                ReadyToRunHelper.MemZero or
+                    ReadyToRunHelper.NativeMemSet => IsAtLeast(9, 2),
+                ReadyToRunHelper.BulkWriteBarrier => IsAtLeast(9, 3),
+                ReadyToRunHelper.LogMethodEnter => !IsAtLeast(10, 0),
+                ReadyToRunHelper.Unbox_TypeTest => IsAtLeast(10, 1),
+                ReadyToRunHelper.GetString => !IsAtLeast(17, 0),
+                ReadyToRunHelper.InitClass or
+                    ReadyToRunHelper.InitInstClass => IsAtLeast(18, 2),
+                ReadyToRunHelper.ThrowArgument or
+                    ReadyToRunHelper.ThrowArgumentOutOfRange or
+                    ReadyToRunHelper.ThrowPlatformNotSupported or
+                    ReadyToRunHelper.ThrowNotImplemented => IsAtLeast(18, 4),
+                ReadyToRunHelper.R2RToInterpreter => IsAtLeast(18, 7),
+                ReadyToRunHelper.ByRefWriteBarrier => !IsAtLeast(19, 0),
+                _ => true,
+            };
+        }
 
         public void ValidateHeader(uint flags, ReadyToRunValidationMode validationMode)
         {

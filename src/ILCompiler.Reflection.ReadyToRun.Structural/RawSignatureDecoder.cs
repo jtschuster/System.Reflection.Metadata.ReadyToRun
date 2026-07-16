@@ -29,37 +29,72 @@ internal static class RawSignatureDecoder
     internal static R2RSignature DecodeMethodSignature(NativeReader reader, int offset, int targetPointerSize)
         => DecodeMethodSignatureWithEndOffset(reader, offset, targetPointerSize).Signature;
 
+    internal static R2RSignature DecodeMethodSignature(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => DecodeMethodSignatureWithEndOffset(reader, offset, targetPointerSize, options).Signature;
+
     internal static R2RSignatureDecodeResult DecodeMethodSignatureWithEndOffset(NativeReader reader, int offset, int targetPointerSize)
-        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitMethod());
+        => DecodeMethodSignatureWithEndOffset(reader, offset, targetPointerSize, ReadyToRunSignatureCompatibility.CurrentStrict);
+
+    internal static R2RSignatureDecodeResult DecodeMethodSignatureWithEndOffset(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => Materialize(reader, offset, targetPointerSize, options, ctx => ctx.EmitMethod());
 
     internal static R2RSignature DecodeTypeSignature(NativeReader reader, int offset, int targetPointerSize)
-        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitType()).Signature;
+        => DecodeTypeSignature(reader, offset, targetPointerSize, ReadyToRunSignatureCompatibility.CurrentStrict);
+
+    internal static R2RSignature DecodeTypeSignature(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => Materialize(reader, offset, targetPointerSize, options, ctx => ctx.EmitType()).Signature;
 
     internal static R2RSignature DecodeFieldSignature(NativeReader reader, int offset, int targetPointerSize)
-        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitField()).Signature;
+        => DecodeFieldSignature(reader, offset, targetPointerSize, ReadyToRunSignatureCompatibility.CurrentStrict);
+
+    internal static R2RSignature DecodeFieldSignature(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => Materialize(reader, offset, targetPointerSize, options, ctx => ctx.EmitField()).Signature;
 
     internal static R2RSignature DecodeFixupSignature(NativeReader reader, int offset, int targetPointerSize)
-        => Materialize(reader, offset, targetPointerSize, ctx => ctx.EmitFixup()).Signature;
+        => DecodeFixupSignatureWithEndOffset(reader, offset, targetPointerSize, ReadyToRunSignatureCompatibility.CurrentStrict).Signature;
+
+    internal static R2RSignature DecodeFixupSignature(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => DecodeFixupSignatureWithEndOffset(reader, offset, targetPointerSize, options).Signature;
+
+    internal static R2RSignatureDecodeResult DecodeFixupSignatureWithEndOffset(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => Materialize(reader, offset, targetPointerSize, options, ctx => ctx.EmitFixup());
 
     // ── Enumerators: lazy IEnumerable<SignaturePart> ─────────────────────
 
     internal static IEnumerable<SignaturePart> EnumerateMethodParts(NativeReader reader, int offset, int targetPointerSize)
-        => new Context(reader, offset, targetPointerSize).EmitMethod();
+        => EnumerateMethodParts(reader, offset, targetPointerSize, ReadyToRunSignatureCompatibility.CurrentStrict);
+
+    internal static IEnumerable<SignaturePart> EnumerateMethodParts(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => new Context(reader, offset, targetPointerSize, options).EmitMethod();
 
     internal static IEnumerable<SignaturePart> EnumerateTypeParts(NativeReader reader, int offset, int targetPointerSize)
-        => new Context(reader, offset, targetPointerSize).EmitType();
+        => EnumerateTypeParts(reader, offset, targetPointerSize, ReadyToRunSignatureCompatibility.CurrentStrict);
+
+    internal static IEnumerable<SignaturePart> EnumerateTypeParts(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => new Context(reader, offset, targetPointerSize, options).EmitType();
 
     internal static IEnumerable<SignaturePart> EnumerateFieldParts(NativeReader reader, int offset, int targetPointerSize)
-        => new Context(reader, offset, targetPointerSize).EmitField();
+        => EnumerateFieldParts(reader, offset, targetPointerSize, ReadyToRunSignatureCompatibility.CurrentStrict);
+
+    internal static IEnumerable<SignaturePart> EnumerateFieldParts(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => new Context(reader, offset, targetPointerSize, options).EmitField();
 
     internal static IEnumerable<SignaturePart> EnumerateFixupParts(NativeReader reader, int offset, int targetPointerSize)
-        => new Context(reader, offset, targetPointerSize).EmitFixup();
+        => EnumerateFixupParts(reader, offset, targetPointerSize, ReadyToRunSignatureCompatibility.CurrentStrict);
+
+    internal static IEnumerable<SignaturePart> EnumerateFixupParts(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
+        => new Context(reader, offset, targetPointerSize, options).EmitFixup();
 
     // ── Materialization helper ───────────────────────────────────────────
 
-    private static R2RSignatureDecodeResult Materialize(NativeReader reader, int offset, int targetPointerSize, Func<Context, IEnumerable<SignaturePart>> emit)
+    private static R2RSignatureDecodeResult Materialize(
+        NativeReader reader,
+        int offset,
+        int targetPointerSize,
+        IReadyToRunSignatureDecodingOptions options,
+        Func<Context, IEnumerable<SignaturePart>> emit)
     {
-        var ctx = new Context(reader, offset, targetPointerSize);
+        var ctx = new Context(reader, offset, targetPointerSize, options);
         var builder = ImmutableArray.CreateBuilder<SignaturePart>();
         foreach (var part in emit(ctx))
             builder.Add(part);
@@ -72,15 +107,17 @@ internal static class RawSignatureDecoder
     {
         private readonly NativeReader _reader;
         private readonly int _targetPointerSize;
+        private readonly IReadyToRunSignatureDecodingOptions _options;
         private int _offset;
 
         public int Offset => _offset;
 
-        public Context(NativeReader reader, int offset, int targetPointerSize)
+        public Context(NativeReader reader, int offset, int targetPointerSize, IReadyToRunSignatureDecodingOptions options)
         {
             _reader = reader;
             _offset = offset;
             _targetPointerSize = targetPointerSize;
+            _options = options;
         }
 
         // ── Byte-reading primitives ──────────────────────────────────────
@@ -230,10 +267,10 @@ internal static class RawSignatureDecoder
                 }
 
                 case CorElementType.ELEMENT_TYPE_VAR_ZAPSIG:
-                    throw new BadImageFormatException("ELEMENT_TYPE_VAR_ZAPSIG not supported in structural decoder");
+                    throw new NotSupportedException("ELEMENT_TYPE_VAR_ZAPSIG is not supported by the structural decoder");
 
                 case CorElementType.ELEMENT_TYPE_NATIVE_VALUETYPE_ZAPSIG:
-                    throw new BadImageFormatException("ELEMENT_TYPE_NATIVE_VALUETYPE_ZAPSIG not supported in structural decoder");
+                    throw new NotSupportedException("ELEMENT_TYPE_NATIVE_VALUETYPE_ZAPSIG is not supported by the structural decoder");
 
                 default:
                     throw new BadImageFormatException($"Unexpected element type: 0x{(byte)elemType:X2}");
@@ -245,6 +282,7 @@ internal static class RawSignatureDecoder
         public IEnumerable<SignaturePart> EmitMethod()
         {
             uint flags = ReadUInt();
+            ReadyToRunSignatureCompatibility.ValidateMethodFlags(flags, _options);
             yield return new SignaturePart(SignaturePartKind.MethodFlags, flags);
 
             if ((flags & (uint)ReadyToRunMethodSigFlags.READYTORUN_METHOD_SIG_UpdateContext) != 0)
@@ -255,7 +293,7 @@ internal static class RawSignatureDecoder
                     yield return p;
 
             if ((flags & (uint)ReadyToRunMethodSigFlags.READYTORUN_METHOD_SIG_SlotInsteadOfToken) != 0)
-                throw new NotImplementedException("SlotInsteadOfToken");
+                throw new NotSupportedException("READYTORUN_METHOD_SIG_SlotInsteadOfToken is not supported by the structural decoder");
 
             yield return new SignaturePart(SignaturePartKind.MethodRid, ReadUInt());
 
@@ -278,6 +316,7 @@ internal static class RawSignatureDecoder
         public IEnumerable<SignaturePart> EmitField()
         {
             uint flags = ReadUInt();
+            ReadyToRunSignatureCompatibility.ValidateFieldFlags(flags);
             yield return new SignaturePart(SignaturePartKind.FieldFlags, flags);
 
             if ((flags & (uint)ReadyToRunFieldSigFlags.READYTORUN_FIELD_SIG_OwnerType) != 0)
@@ -300,6 +339,16 @@ internal static class RawSignatureDecoder
             if (moduleOverride)
                 yield return new SignaturePart(SignaturePartKind.FixupModuleOverride, ReadUInt());
 
+            if (!ReadyToRunSignatureCompatibility.IsKnownFixupKind(fixupKind))
+            {
+                if (_options.ValidationMode == ReadyToRunValidationMode.Strict)
+                    throw new NotSupportedException($"Fixup kind 0x{(byte)fixupKind:X2} is not supported by the structural decoder.");
+
+                yield return new SignaturePart(SignaturePartKind.FixupOpaquePayloadOffset, _offset);
+                yield break;
+            }
+
+            ReadyToRunSignatureCompatibility.ValidateFixupKind(fixupKind, _options);
             foreach (var p in EmitFixupPayload(fixupKind))
                 yield return p;
         }
@@ -369,8 +418,15 @@ internal static class RawSignatureDecoder
                     yield break;
 
                 case ReadyToRunFixupKind.Helper:
-                    yield return new SignaturePart(SignaturePartKind.HelperId, ReadUInt());
+                {
+                    uint helperId = ReadUInt();
+                    if (ReadyToRunSignatureCompatibility.IsKnownHelperId(helperId))
+                        ReadyToRunSignatureCompatibility.ValidateHelperId(helperId, _options);
+                    else if (_options.ValidationMode == ReadyToRunValidationMode.Strict)
+                        throw new NotSupportedException($"Helper id 0x{helperId:X} is not supported by the structural decoder.");
+                    yield return new SignaturePart(SignaturePartKind.HelperId, helperId);
                     yield break;
+                }
 
                 case ReadyToRunFixupKind.StringHandle:
                     yield return new SignaturePart(SignaturePartKind.UserStringToken, ReadUInt());
@@ -387,6 +443,11 @@ internal static class RawSignatureDecoder
 
                 case ReadyToRunFixupKind.ResumptionStubEntryPoint:
                     yield return new SignaturePart(SignaturePartKind.ResumptionStubRva, _reader.ReadInt32(ref _offset));
+                    yield break;
+
+                case ReadyToRunFixupKind.InjectStringThunks:
+                    foreach (var p in EmitInjectStringThunksPayload())
+                        yield return p;
                     yield break;
 
                 case ReadyToRunFixupKind.Check_VirtualFunctionOverride:
@@ -458,7 +519,24 @@ internal static class RawSignatureDecoder
                 }
 
                 default:
+                    throw new NotSupportedException($"Fixup kind 0x{(byte)fixupKind:X2} is not supported by the structural decoder.");
+            }
+        }
+
+        private IEnumerable<SignaturePart> EmitInjectStringThunksPayload()
+        {
+            while (true)
+            {
+                var bytes = new List<byte>();
+                byte current;
+                while ((current = ReadByte()) != 0)
+                    bytes.Add(current);
+
+                if (bytes.Count == 0)
                     yield break;
+
+                yield return new SignaturePart(SignaturePartKind.InjectStringThunkName, bytes.ToArray());
+                yield return new SignaturePart(SignaturePartKind.InjectStringThunkRva, _reader.ReadInt32(ref _offset));
             }
         }
 

@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Text;
 
 namespace System.Reflection.Metadata.ReadyToRun;
 
@@ -75,8 +76,15 @@ public enum SignaturePartKind
     FixupModuleOverride,
     /// <summary>Helper id (compressed uint).</summary>
     HelperId,
+    /// <summary>File offset of an unread opaque fixup payload. Used when tolerant decoding cannot
+    /// determine the payload length for an unknown fixup kind.</summary>
+    FixupOpaquePayloadOffset,
     /// <summary>User-string handle RID (compressed uint).</summary>
     UserStringToken,
+    /// <summary>UTF-8 bytes for one InjectStringThunks lookup string (without the terminating null).</summary>
+    InjectStringThunkName,
+    /// <summary>Thunk RVA paired with <see cref="InjectStringThunkName"/>.</summary>
+    InjectStringThunkRva,
     /// <summary>V-table slot index (compressed uint).</summary>
     VirtualSlotIndex,
     /// <summary>Virtual-function-override flags (compressed uint).</summary>
@@ -152,7 +160,11 @@ public readonly struct SignaturePart
     }
 
     public override string ToString()
-        => Blob is null ? $"{Kind}=0x{Value:X}" : $"{Kind}={Blob.Length}bytes";
+        => Blob is null
+            ? $"{Kind}=0x{Value:X}"
+            : Kind == SignaturePartKind.InjectStringThunkName
+                ? $"{Kind}=\"{Encoding.UTF8.GetString(Blob)}\""
+                : $"{Kind}={Blob.Length}bytes";
 }
 
 /// <summary>

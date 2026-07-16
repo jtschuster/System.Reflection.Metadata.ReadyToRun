@@ -58,6 +58,16 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         /// <returns>The decoded payload for the first matching entry, or <c>null</c> if no entry matches.</returns>
         public InstanceMethodPayload LookupInstanceMethodEntryPoint(InstanceMethodEntryPointsTable table, int versionResilientHash, Func<MethodSignature, bool> predicate)
+            => LookupInstanceMethodEntryPoint(table, versionResilientHash, predicate, SignatureDecodingOptions);
+
+        /// <summary>
+        /// Look up an instance-method entry using explicit ReadyToRun version/policy settings.
+        /// </summary>
+        public InstanceMethodPayload LookupInstanceMethodEntryPoint(
+            InstanceMethodEntryPointsTable table,
+            int versionResilientHash,
+            Func<MethodSignature, bool> predicate,
+            IReadyToRunSignatureDecodingOptions options)
         {
             NativeHashtable hashtable = OpenInstanceMethodEntryPointsHashtable(table);
             NativeHashtable.Enumerator enumerator = hashtable.Lookup(versionResilientHash);
@@ -66,7 +76,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             while (!entryParser.IsNull())
             {
                 int payloadOffset = (int)entryParser.Offset;
-                R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize);
+                R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
                 MethodSignature methodSig = MethodSignature.FromSignature(signature.Signature);
                 if (predicate(methodSig))
                 {
@@ -102,8 +112,14 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// layout is method-signature || DecodeUnsigned(id) || optional back-reference.
         /// </summary>
         public InstanceMethodPayload GetInstanceMethodPayload(InstanceMethodEntry entry)
+            => GetInstanceMethodPayload(entry, SignatureDecodingOptions);
+
+        /// <summary>
+        /// Fully parse an <see cref="InstanceMethodEntry"/> using explicit ReadyToRun version/policy settings.
+        /// </summary>
+        public InstanceMethodPayload GetInstanceMethodPayload(InstanceMethodEntry entry, IReadyToRunSignatureDecodingOptions options)
         {
-            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, (int)entry.PayloadOffset, TargetPointerSize);
+            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, (int)entry.PayloadOffset, TargetPointerSize, options);
 
             int offset = signature.EndOffset;
             (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) = DecodeRuntimeFunctionIdAndFixupCellList(offset);

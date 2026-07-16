@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Text;
 
 using Internal.CorConstants;
 using Internal.ReadyToRunConstants;
@@ -278,6 +279,9 @@ public sealed partial class R2RFieldRef
 
 public sealed partial class R2RFixupSignature
 {
+    private static readonly Encoding s_strictUtf8 =
+        new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     public static R2RFixupSignature FromSignature(R2RSignature signature, int contextModule = -1)
     {
         int index = 0;
@@ -368,7 +372,7 @@ public sealed partial class R2RFixupSignature
             }
 
             case ReadyToRunFixupKind.Helper:
-                return new R2RHelperFixupPayload((ReadyToRunHelper)
+                return new R2RHelperFixupPayload((uint)
                     MethodSignature.Expect(parts, ref index, SignaturePartKind.HelperId));
 
             case ReadyToRunFixupKind.StringHandle:
@@ -386,6 +390,30 @@ public sealed partial class R2RFixupSignature
             case ReadyToRunFixupKind.ResumptionStubEntryPoint:
                 return new R2RStubEntryPointFixupPayload((int)
                     MethodSignature.Expect(parts, ref index, SignaturePartKind.ResumptionStubRva));
+
+            case ReadyToRunFixupKind.InjectStringThunks:
+            {
+                var entries = ImmutableArray.CreateBuilder<R2RInjectStringThunkEntry>();
+                while (index < parts.Length)
+                {
+                    string lookupString;
+                    try
+                    {
+                        lookupString = s_strictUtf8.GetString(
+                            MethodSignature.ExpectBlob(parts, ref index, SignaturePartKind.InjectStringThunkName)
+                            ?? Array.Empty<byte>());
+                    }
+                    catch (DecoderFallbackException exception)
+                    {
+                        throw new BadImageFormatException(
+                            "InjectStringThunks contains an invalid UTF-8 lookup string.",
+                            exception);
+                    }
+                    int thunkRva = (int)MethodSignature.Expect(parts, ref index, SignaturePartKind.InjectStringThunkRva);
+                    entries.Add(new R2RInjectStringThunkEntry(lookupString, thunkRva));
+                }
+                return new R2RInjectStringThunksFixupPayload(entries.ToImmutable());
+            }
 
             case ReadyToRunFixupKind.Check_VirtualFunctionOverride:
             case ReadyToRunFixupKind.Verify_VirtualFunctionOverride:
@@ -455,7 +483,9 @@ public sealed partial class R2RFixupSignature
             }
 
             default:
-                return R2REmptyFixupPayload.Instance;
+                if (index < parts.Length && parts[index].Kind == SignaturePartKind.FixupOpaquePayloadOffset)
+                    return new R2ROpaqueFixupPayload((int)MethodSignature.Expect(parts, ref index, SignaturePartKind.FixupOpaquePayloadOffset));
+                throw new NotSupportedException($"Fixup kind {(byte)fixupKind:X2} is not supported by the structural decoder.");
         }
     }
 

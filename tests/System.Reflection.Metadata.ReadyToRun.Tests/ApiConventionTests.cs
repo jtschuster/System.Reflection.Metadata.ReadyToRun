@@ -170,13 +170,57 @@ public sealed class ApiConventionTests
         Assert.NotNull(enumerate);
         Assert.Equal(typeof(IEnumerable<>).MakeGenericType(RequireType("InstanceMethodEntry")), enumerate!.ReturnType);
 
-        MethodInfo? lookup = reader.GetMethod("LookupInstanceMethodEntryPoint", BindingFlags.Public | BindingFlags.Instance);
+        MethodInfo? lookup = reader.GetMethod(
+            "LookupInstanceMethodEntryPoint",
+            new[]
+            {
+                table,
+                typeof(int),
+                typeof(Func<,>).MakeGenericType(RequireType("MethodSignature"), typeof(bool))
+            });
         Assert.NotNull(lookup);
         ParameterInfo[] parameters = lookup!.GetParameters();
         Assert.Equal(3, parameters.Length);
         Assert.Equal(table, parameters[0].ParameterType);
         Assert.Equal(typeof(int), parameters[1].ParameterType);
         Assert.Equal(typeof(Func<,>).MakeGenericType(RequireType("MethodSignature"), typeof(bool)), parameters[2].ParameterType);
+    }
+
+    [Fact]
+    public void SignatureDecodingOptions_ArePublicAndImplementedByTheDefaultOptionsRecord()
+    {
+        Type optionsInterface = RequireType("IReadyToRunSignatureDecodingOptions");
+        Type optionsType = RequireType("ReadyToRunSignatureDecodingOptions");
+
+        Assert.True(optionsInterface.IsInterface);
+        Assert.Contains(optionsType.GetInterfaces(), type => type == optionsInterface);
+
+        Assert.Equal(typeof(ushort), optionsInterface.GetProperty("MajorVersion")?.PropertyType);
+        Assert.Equal(typeof(ushort), optionsInterface.GetProperty("MinorVersion")?.PropertyType);
+        Assert.Equal(typeof(ReadyToRunValidationMode), optionsInterface.GetProperty("ValidationMode")?.PropertyType);
+    }
+
+    [Fact]
+    public void ReaderDecodingApis_HaveAdditiveOptionsOverloads()
+    {
+        Type optionsInterface = RequireType("IReadyToRunSignatureDecodingOptions");
+        Type reader = typeof(ReadyToRunReader);
+        Type instanceMethodEntry = RequireType("InstanceMethodEntry");
+        Type instanceMethodTable = RequireType("InstanceMethodEntryPointsTable");
+        Type pgoEntry = RequireType("PgoEntry");
+
+        Assert.NotNull(reader.GetMethod("DecodeFixupSignature", new[] { typeof(int), optionsInterface }));
+        Assert.NotNull(reader.GetMethod("GetInstanceMethodPayload", new[] { instanceMethodEntry, optionsInterface }));
+        Assert.NotNull(reader.GetMethod("GetPgoPayload", new[] { pgoEntry, optionsInterface }));
+        Assert.NotNull(reader.GetMethod(
+            "LookupInstanceMethodEntryPoint",
+            new[]
+            {
+                instanceMethodTable,
+                typeof(int),
+                typeof(Func<,>).MakeGenericType(RequireType("MethodSignature"), typeof(bool)),
+                optionsInterface
+            }));
     }
 
     private static Type RequireType(string simpleName)

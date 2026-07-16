@@ -68,8 +68,14 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// decoding it is intentionally left to higher-layer consumers.
         /// </remarks>
         public PgoPayload GetPgoPayload(PgoEntry entry)
+            => GetPgoPayload(entry, SignatureDecodingOptions);
+
+        /// <summary>
+        /// Fully parse a <see cref="PgoEntry"/> using explicit ReadyToRun version/policy settings.
+        /// </summary>
+        public PgoPayload GetPgoPayload(PgoEntry entry, IReadyToRunSignatureDecodingOptions options)
         {
-            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, (int)entry.PayloadOffset, TargetPointerSize);
+            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, (int)entry.PayloadOffset, TargetPointerSize, options);
 
             int offset = signature.EndOffset;
             uint versionAndFlags = 0;
