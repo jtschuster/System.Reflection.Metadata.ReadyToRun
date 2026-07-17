@@ -42,6 +42,15 @@ public sealed class ApiConventionTests
         new object[] { "RuntimeFunctionEntry" },
         new object[] { "InstanceMethodPayload" },
         new object[] { "PgoPayload" },
+        new object[] { "ProfileDataInfoEntry" },
+        new object[] { "ExternalTypeMapGroup" },
+        new object[] { "ExternalTypeMapEntry" },
+        new object[] { "ProxyTypeMapGroup" },
+        new object[] { "ProxyTypeMapEntry" },
+        new object[] { "TypeMapAssemblyTargetsEntry" },
+        new object[] { "DelayLoadMethodCallThunksSection" },
+        new object[] { "ManifestMetadataSection" },
+        new object[] { "AttributePresenceSection" },
     };
 
     [Theory]
@@ -77,6 +86,8 @@ public sealed class ApiConventionTests
         new object[] { "PgoPayloadOffset" },
         new object[] { "PgoDataBlobOffset" },
         new object[] { "R2ROpaqueFixupPayloadOffset" },
+        new object[] { "ExternalTypeMapInnerHandle" },
+        new object[] { "ProxyTypeMapInnerHandle" },
     };
 
     [Theory]
@@ -264,6 +275,30 @@ public sealed class ApiConventionTests
         Assert.False(section.GetProperty(nameof(ReadyToRunSection.RelativeVirtualAddress))!.CanWrite);
         Assert.False(section.GetProperty(nameof(ReadyToRunSection.Size))!.CanWrite);
         Assert.Null(section.GetProperty("DelayLoadMethodThunkRva", BindingFlags.Public | BindingFlags.Instance));
+    }
+
+    [Fact]
+    public void DelayLoadThunkDescriptor_ContainsOnlyDirectoryFields()
+    {
+        Type type = RequireType("DelayLoadMethodCallThunksSection");
+
+        Assert.Equal(RequireType("ImageRVA"), type.GetProperty("SectionRva")?.PropertyType);
+        Assert.Equal(typeof(int), type.GetProperty("Length")?.PropertyType);
+        Assert.Null(type.GetProperty("FileOffset", BindingFlags.Public | BindingFlags.Instance));
+        Assert.Null(type.GetProperty("Architecture", BindingFlags.Public | BindingFlags.Instance));
+    }
+
+    [Fact]
+    public void TypeMapInnerLookup_DoesNotAcceptCallerSuppliedBounds()
+    {
+        Type reader = typeof(ReadyToRunReader);
+        Type externalHandle = RequireType("ExternalTypeMapInnerHandle");
+        Type proxyHandle = RequireType("ProxyTypeMapInnerHandle");
+
+        Assert.NotNull(reader.GetMethod("GetExternalTypeMapEntries", new[] { externalHandle }));
+        Assert.Null(reader.GetMethod("GetExternalTypeMapEntries", new[] { externalHandle, typeof(int) }));
+        Assert.NotNull(reader.GetMethod("GetProxyTypeMapEntries", new[] { proxyHandle }));
+        Assert.Null(reader.GetMethod("GetProxyTypeMapEntries", new[] { proxyHandle, typeof(int) }));
     }
 
     private static Type RequireType(string simpleName)

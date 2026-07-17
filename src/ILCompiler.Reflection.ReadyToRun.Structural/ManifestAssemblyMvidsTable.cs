@@ -37,6 +37,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </exception>
         public ManifestAssemblyMvidsTable GetManifestAssemblyMvidsTable(ReadyToRunSection section)
         {
+            int offset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ManifestAssemblyMvids,
+                nameof(GetManifestAssemblyMvidsTable));
             if (section.Size % 16 != 0)
                 throw new BadImageFormatException(
                     $"ManifestAssemblyMvids section size {section.Size} is not a multiple of 16 bytes.");
@@ -44,9 +48,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             int count = section.Size / 16;
             if (count == 0)
                 return new ManifestAssemblyMvidsTable([]);
-
             var mvids = new List<Guid>(count);
-            int offset = GetOffsetForRVA(section.RelativeVirtualAddress);
 
             for (int i = 0; i < count; i++)
             {

@@ -500,6 +500,12 @@ public sealed class CompatibilityDecoderTests
         public MetadataReader GetManifestAssemblyMetadata(int offset, int size)
             => throw new NotSupportedException();
 
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        {
+            fileOffset = 0;
+            return false;
+        }
+
         public void Dispose()
         {
         }

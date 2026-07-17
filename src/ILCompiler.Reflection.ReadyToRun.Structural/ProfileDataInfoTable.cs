@@ -42,7 +42,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public ulong NextHandle { get; }
 
-        /// <summary>Total byte size of this record (includes the next-handle and header).</summary>
+        /// <summary>
+        /// Byte size of the CORBBTPROF method header and payload.
+        /// The preceding next-handle pointer is not included.
+        /// </summary>
         public uint Size { get; }
 
         /// <summary>Number of detail entries (cDetail field).</summary>
@@ -98,25 +101,31 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </exception>
         public ProfileDataInfoTable GetProfileDataInfoTable(ReadyToRunSection section)
         {
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ProfileDataInfo,
+                nameof(GetProfileDataInfoTable));
             if (section.Size == 0)
                 return new ProfileDataInfoTable(Array.Empty<ProfileDataInfoEntry>());
 
             int pointerSize = TargetPointerSize;
-            int firstOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
+            int sectionEndOffset = checked(sectionOffset + section.Size);
             var entries = new List<ProfileDataInfoEntry>();
-
-            // Track visited file offsets to detect cycles.
             var visited = new HashSet<int>();
+            int currentOffset = sectionOffset;
 
-            int currentOffset = firstOffset;
-
-            while (currentOffset != 0)
+            while (true)
             {
+                if (currentOffset < sectionOffset || currentOffset >= sectionEndOffset)
+                    throw new BadImageFormatException("ProfileDataInfo record starts outside its containing section.");
                 if (!visited.Add(currentOffset))
                     throw new BadImageFormatException(
                         $"ProfileDataInfo linked list contains a cycle at file offset 0x{currentOffset:X}.");
+                int recordOffset = currentOffset;
+                const int methodHeaderByteCount = 5 * sizeof(uint);
+                if (sectionEndOffset - recordOffset < pointerSize + methodHeaderByteCount)
+                    throw new BadImageFormatException("ProfileDataInfo record header is truncated.");
 
-                // Read the pointer-sized next-handle (a relocated image VA stored as 4 or 8 bytes).
                 ulong nextHandle;
                 if (pointerSize == 8)
                 {
@@ -127,30 +136,35 @@ namespace System.Reflection.Metadata.ReadyToRun
                     nextHandle = _nativeReader.ReadUInt32(ref currentOffset);
                 }
 
-                // Read CORBBTPROF_METHOD_HEADER fields.
                 uint size = _nativeReader.ReadUInt32(ref currentOffset);
                 uint detail = _nativeReader.ReadUInt32(ref currentOffset);
                 uint methodToken = _nativeReader.ReadUInt32(ref currentOffset);
                 uint ilSize = _nativeReader.ReadUInt32(ref currentOffset);
                 uint blockCount = _nativeReader.ReadUInt32(ref currentOffset);
 
-                // Read the remaining payload bytes.
-                int headerByteCount = pointerSize + 5 * sizeof(uint);
-                int payloadByteCount = (int)size > headerByteCount ? (int)size - headerByteCount : 0;
+                if (size < methodHeaderByteCount)
+                    throw new BadImageFormatException("ProfileDataInfo record size is smaller than its method header.");
+
+                uint payloadByteCount = size - methodHeaderByteCount;
+                long recordEndOffset = (long)recordOffset + pointerSize + size;
+                if (recordEndOffset > sectionEndOffset)
+                    throw new BadImageFormatException("ProfileDataInfo record extends beyond its containing section.");
+
                 byte[] payload = new byte[payloadByteCount];
-                for (int i = 0; i < payloadByteCount; i++)
-                    payload[i] = _nativeReader.ReadByte(ref currentOffset);
+                _nativeReader.ReadSpanAt(ref currentOffset, payload);
 
                 entries.Add(new ProfileDataInfoEntry(nextHandle, size, detail, methodToken, ilSize, blockCount, payload));
 
-                // Follow the next-handle pointer to the next record.
                 if (nextHandle == 0)
                     break;
 
+                if (nextHandle > long.MaxValue)
+                    throw new BadImageFormatException($"ProfileDataInfo next handle 0x{nextHandle:X} is outside the supported VA range.");
                 if (!_platformBinaryReader.TryGetFileOffsetFromImageVA((long)nextHandle, out int nextFileOffset))
                     throw new BadImageFormatException(
-                        $"ProfileDataInfo next handle 0x{nextHandle:X} could not be converted to a file offset. " +
-                        "The platform binary reader may not support VA-to-offset conversion.");
+                        $"ProfileDataInfo next handle 0x{nextHandle:X} could not be converted to a file offset.");
+                if (nextFileOffset < sectionOffset || nextFileOffset >= sectionEndOffset)
+                    throw new BadImageFormatException("ProfileDataInfo next handle points outside its containing section.");
 
                 currentOffset = nextFileOffset;
             }

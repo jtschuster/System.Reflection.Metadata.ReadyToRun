@@ -59,16 +59,17 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </exception>
         public AttributePresenceSection GetAttributePresenceSection(ReadyToRunSection section)
         {
+            int filterOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.AttributePresence,
+                nameof(GetAttributePresenceSection));
             int filterSize = section.Size;
 
-            // Empty filter (size == 0) is always valid; no data to read, so alignment is irrelevant.
             if (filterSize == 0)
             {
                 var emptyFilter = new NativeCuckooFilter(_nativeReader, 0, 0);
                 return new AttributePresenceSection(emptyFilter);
             }
-
-            int filterOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
 
             if ((filterOffset & 0xF) != 0)
                 throw new BadImageFormatException(

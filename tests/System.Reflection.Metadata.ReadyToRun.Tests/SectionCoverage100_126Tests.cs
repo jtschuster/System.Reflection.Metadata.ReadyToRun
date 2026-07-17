@@ -47,7 +47,7 @@ public sealed class SectionCoverage100_126Tests
         {
             new WebcilImageBuilder.R2RSectionSpec(sectionType, content),
         };
-        return WebcilImageBuilder.BuildRawWebcil(18, 0, specs);
+        return WebcilImageBuilder.BuildRawWebcil(24, 0, specs);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -65,8 +65,7 @@ public sealed class SectionCoverage100_126Tests
         DelayLoadMethodCallThunksSection thunks = reader.GetDelayLoadMethodCallThunksSection(section);
 
         Assert.Equal(0, thunks.Length);
-        // For a zero-length section, no file offset is computed (returns 0 by convention).
-        Assert.Equal(0, thunks.FileOffset);
+        Assert.Equal(section.RelativeVirtualAddress, thunks.SectionRva);
     }
 
     [Fact]
@@ -74,16 +73,15 @@ public sealed class SectionCoverage100_126Tests
     {
         byte[] content = { 0x90, 0xFF, 0x25, 0xAB, 0xCD, 0xEF, 0x01, 0x23 }; // arbitrary opcodes
         byte[] image = BuildSingleSectionImage(
-            ReadyToRunSectionType.DelayLoadMethodCallThunks, content, out int fileOffset);
+            ReadyToRunSectionType.DelayLoadMethodCallThunks, content, out _);
 
         using ReadyToRunReader reader = CreateReader(image);
         ReadyToRunSection section = FindSection(reader.GetSections(), ReadyToRunSectionType.DelayLoadMethodCallThunks);
         DelayLoadMethodCallThunksSection thunks = reader.GetDelayLoadMethodCallThunksSection(section);
 
         Assert.Equal(content.Length, thunks.Length);
-        Assert.Equal(fileOffset, thunks.FileOffset);
-        // Webcil → Wasm32 architecture.
-        Assert.Equal(WasmMachine.Wasm32, thunks.Architecture);
+        Assert.Equal(section.RelativeVirtualAddress, thunks.SectionRva);
+        Assert.Equal(WasmMachine.Wasm32, reader.Machine);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -111,7 +109,7 @@ public sealed class SectionCoverage100_126Tests
         byte[] content = new byte[]
         {
             0x00, 0x00, 0x00, 0x00,  // nextHandle = 0 (end of list)
-            0x18, 0x00, 0x00, 0x00,  // size = 24 (pointer + 5 * uint32 = 4+20, no payload)
+            0x14, 0x00, 0x00, 0x00,  // size = 20 (five uint32 fields; excludes nextHandle)
             0x00, 0x00, 0x00, 0x00,  // detail = 0
             0x01, 0x00, 0x00, 0x06,  // methodToken = 0x06000001
             0x0A, 0x00, 0x00, 0x00,  // ilSize = 10
@@ -128,12 +126,79 @@ public sealed class SectionCoverage100_126Tests
         Assert.Single(table.Entries);
         ProfileDataInfoEntry entry = table.Entries[0];
         Assert.Equal(0UL, entry.NextHandle);
-        Assert.Equal(24u, entry.Size);
+        Assert.Equal(20u, entry.Size);
         Assert.Equal(0u, entry.Detail);
         Assert.Equal(0x06000001u, entry.MethodToken);
         Assert.Equal(10u, entry.ILSize);
         Assert.Equal(0u, entry.BlockCount);
         Assert.Empty(entry.PayloadBytes);
+    }
+
+    [Fact]
+    public void ProfileDataInfo_SizeExcludesNextPointerAndPreservesPayload()
+    {
+        byte[] payload = { 0x04, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00, 0x00 };
+        byte[] content =
+        [
+            0x00, 0x00, 0x00, 0x00,  // nextHandle = 0
+            0x1C, 0x00, 0x00, 0x00,  // size = 20-byte header + 8-byte payload
+            0x00, 0x00, 0x00, 0x00,  // detail
+            0x01, 0x00, 0x00, 0x06,  // methodToken
+            0x0A, 0x00, 0x00, 0x00,  // ilSize
+            0x01, 0x00, 0x00, 0x00,  // blockCount
+            0x04, 0x00, 0x00, 0x00,  // block IL offset
+            0x2A, 0x00, 0x00, 0x00,  // execution count
+        ];
+
+        byte[] image = BuildSingleSectionImage(
+            ReadyToRunSectionType.ProfileDataInfo, content, out _);
+        using ReadyToRunReader reader = CreateReader(image);
+        ProfileDataInfoEntry entry = Assert.Single(reader.GetProfileDataInfoTable(
+            FindSection(reader.GetSections(), ReadyToRunSectionType.ProfileDataInfo)).Entries);
+
+        Assert.Equal(28u, entry.Size);
+        Assert.Equal(payload, entry.PayloadBytes);
+    }
+
+    [Fact]
+    public void ProfileDataInfo_RecordSizeSmallerThanHeader_ThrowsBadImageFormat()
+    {
+        byte[] content =
+        [
+            0x00, 0x00, 0x00, 0x00,
+            0x13, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x06,
+            0x0A, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        byte[] image = BuildSingleSectionImage(
+            ReadyToRunSectionType.ProfileDataInfo, content, out _);
+        using ReadyToRunReader reader = CreateReader(image);
+        ReadyToRunSection section = FindSection(reader.GetSections(), ReadyToRunSectionType.ProfileDataInfo);
+
+        Assert.Throws<BadImageFormatException>(() => reader.GetProfileDataInfoTable(section));
+    }
+
+    [Fact]
+    public void ProfileDataInfo_PayloadCannotExtendBeyondSection()
+    {
+        byte[] content =
+        [
+            0x00, 0x00, 0x00, 0x00,
+            0x1C, 0x00, 0x00, 0x00, // Claims eight payload bytes.
+            0x00, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x06,
+            0x0A, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00,
+            0x04, 0x00, 0x00, 0x00, // Only four payload bytes are present.
+        ];
+        byte[] image = BuildSingleSectionImage(
+            ReadyToRunSectionType.ProfileDataInfo, content, out _);
+        using ReadyToRunReader reader = CreateReader(image);
+        ReadyToRunSection section = FindSection(reader.GetSections(), ReadyToRunSectionType.ProfileDataInfo);
+
+        Assert.Throws<BadImageFormatException>(() => reader.GetProfileDataInfoTable(section));
     }
 
     [Fact]
@@ -143,7 +208,7 @@ public sealed class SectionCoverage100_126Tests
         byte[] content = new byte[]
         {
             0x01, 0x00, 0x20, 0x00,  // nextHandle = 0x00200001 (non-zero, invalid for Webcil)
-            0x18, 0x00, 0x00, 0x00,  // size = 24
+            0x14, 0x00, 0x00, 0x00,  // size = 20
             0x00, 0x00, 0x00, 0x00,  // detail
             0x01, 0x00, 0x00, 0x06,  // methodToken
             0x0A, 0x00, 0x00, 0x00,  // ilSize
@@ -234,24 +299,11 @@ public sealed class SectionCoverage100_126Tests
     [Fact]
     public void AttributePresence_NonPowerOfTwoSize_ThrowsBadImageFormat()
     {
-        // To bypass the alignment check, we'd need a properly aligned section.
-        // Instead verify the error by testing NativeCuckooFilter directly.
-        // A 24-byte filter has 1.5 buckets — not a power of two.
-        byte[] filterData = new byte[24];
+        byte[] filterData = new byte[48];
         using var stream = new MemoryStream(filterData);
         var nativeReader = new NativeReader(stream);
 
-        // size = 24, not a power of two (24 & 23 = 8 ≠ 0), not a multiple of 16.
-        // Use FilterOffset = 0 (16-aligned) to isolate the size check.
-        // Verify the reader method rejects it via the size-validation path.
-        // (We simulate a section that is both aligned AND has bad size.)
-
-        // Build the inner-reader assertion through the constructor directly:
-        // The NativeCuckooFilter constructor only checks offset alignment, not size.
-        // So we validate the section-level guard in a targeted unit test:
-
-        Assert.True((24 & 23) != 0, "Sanity: 24 is not a power of two.");
-        Assert.True((24 & 0xF) != 0, "Sanity: 24 is not a multiple of 16.");
+        Assert.Throws<BadImageFormatException>(() => new NativeCuckooFilter(nativeReader, 0, 48));
     }
 
     [Fact]
@@ -365,8 +417,8 @@ public sealed class SectionCoverage100_126Tests
     // Section 124 — ExternalTypeMaps
     // ──────────────────────────────────────────────────────────────────────────
 
-    // Empty outer NativeHashtable: [header=0x00][idx_start=0x00][idx_end=0x00]
-    private static readonly byte[] EmptyNativeHashtable = { 0x00, 0x00, 0x00 };
+    // Empty one-bucket NativeHashtable: both bucket offsets point just past the two-byte index.
+    private static readonly byte[] EmptyNativeHashtable = { 0x00, 0x02, 0x02 };
 
     /// <summary>
     /// Builds a single-bucket NativeHashtable containing exactly one entry.
@@ -398,11 +450,31 @@ public sealed class SectionCoverage100_126Tests
 
     private static byte[] EncodeUnsigned(uint value)
     {
-        // NativeFormat unsigned: single byte if value fits in 7 bits (bit 0 = 0)
-        // Single-byte encoding: value << 1 (for small values, this is the normal case)
         if (value < 0x40)
             return new[] { (byte)(value << 1) };
-        throw new ArgumentOutOfRangeException(nameof(value), "Only small values supported for test encoding.");
+        if (value < 0x4000)
+            return new[] { (byte)((value << 2) | 1), (byte)(value >> 6) };
+        if (value < 0x20_0000)
+            return new[] { (byte)((value << 3) | 3), (byte)(value >> 5), (byte)(value >> 13) };
+        if (value < 0x1000_0000)
+        {
+            return new[]
+            {
+                (byte)((value << 4) | 7),
+                (byte)(value >> 4),
+                (byte)(value >> 12),
+                (byte)(value >> 20),
+            };
+        }
+
+        return new[]
+        {
+            (byte)0x0F,
+            (byte)value,
+            (byte)(value >> 8),
+            (byte)(value >> 16),
+            (byte)(value >> 24),
+        };
     }
 
     private static byte[] ImportRef(uint sectionIdx, uint fixupIdx)
@@ -462,8 +534,7 @@ public sealed class SectionCoverage100_126Tests
         Assert.Equal(1u, g.State);
         Assert.NotEqual(default, g.InnerHandle);
 
-        int sectionEndOffset = reader.GetOffsetForRVA(section.RelativeVirtualAddress) + section.Size;
-        IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(g.InnerHandle, sectionEndOffset);
+        IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(g.InnerHandle);
         Assert.Empty(innerEntries);
     }
 
@@ -498,13 +569,33 @@ public sealed class SectionCoverage100_126Tests
         Assert.Equal(new ImportFixupReference(1, 2), g.GroupRef);
         Assert.Equal(1u, g.State);
 
-        int sectionEndOffset = reader.GetOffsetForRVA(section.RelativeVirtualAddress) + section.Size;
-        IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(g.InnerHandle, sectionEndOffset);
+        IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(g.InnerHandle);
 
         Assert.Single(innerEntries);
         ExternalTypeMapEntry e = innerEntries[0];
         Assert.Equal("Foo", e.Key);
         Assert.Equal(new ImportFixupReference(3, 4), e.ResultRef);
+        Assert.Throws<ArgumentException>(() => reader.GetExternalTypeMapEntries(
+            (ExternalTypeMapInnerHandle)((uint)g.InnerHandle + 1)));
+    }
+
+    [Fact]
+    public void ExternalTypeMaps_KeyLengthCannotExtendBeyondSection()
+    {
+        byte[] innerTableContent = BuildOneEntryHashtable(EncodeUnsigned(63));
+        byte[] outerEntryData = ImportRef(1, 2)
+            .Concat(EncodeUnsigned(1))
+            .Concat(innerTableContent)
+            .ToArray();
+        byte[] image = BuildSingleSectionImage(
+            ReadyToRunSectionType.ExternalTypeMaps,
+            BuildOneEntryHashtable(outerEntryData),
+            out _);
+        using ReadyToRunReader reader = CreateReader(image);
+        ExternalTypeMapGroup group = Assert.Single(reader.GetExternalTypeMapsTable(
+            FindSection(reader.GetSections(), ReadyToRunSectionType.ExternalTypeMaps)).Groups);
+
+        Assert.Throws<BadImageFormatException>(() => reader.GetExternalTypeMapEntries(group.InnerHandle));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -550,13 +641,14 @@ public sealed class SectionCoverage100_126Tests
         Assert.Equal(new ImportFixupReference(5, 6), g.GroupRef);
         Assert.Equal(1u, g.State);
 
-        int sectionEndOffset = reader.GetOffsetForRVA(section.RelativeVirtualAddress) + section.Size;
-        IReadOnlyList<ProxyTypeMapEntry> innerEntries = reader.GetProxyTypeMapEntries(g.InnerHandle, sectionEndOffset);
+        IReadOnlyList<ProxyTypeMapEntry> innerEntries = reader.GetProxyTypeMapEntries(g.InnerHandle);
 
         Assert.Single(innerEntries);
         ProxyTypeMapEntry e = innerEntries[0];
         Assert.Equal(new ImportFixupReference(1, 2), e.KeyRef);
         Assert.Equal(new ImportFixupReference(3, 4), e.ValueRef);
+        Assert.Throws<ArgumentException>(() => reader.GetProxyTypeMapEntries(
+            (ProxyTypeMapInnerHandle)((uint)g.InnerHandle + 1)));
     }
 
     [Fact]
@@ -577,8 +669,7 @@ public sealed class SectionCoverage100_126Tests
         Assert.Equal(0u, g.State);
         Assert.Equal(default, g.InnerHandle);
 
-        int sectionEndOffset = reader.GetOffsetForRVA(section.RelativeVirtualAddress) + section.Size;
-        IReadOnlyList<ProxyTypeMapEntry> entries = reader.GetProxyTypeMapEntries(g.InnerHandle, sectionEndOffset);
+        IReadOnlyList<ProxyTypeMapEntry> entries = reader.GetProxyTypeMapEntries(g.InnerHandle);
         Assert.Empty(entries);
     }
 
@@ -645,5 +736,48 @@ public sealed class SectionCoverage100_126Tests
         Assert.Equal(new ImportFixupReference(3, 4), e.ModuleRefs[0]);
         Assert.Equal(new ImportFixupReference(5, 6), e.ModuleRefs[1]);
         Assert.Equal(new ImportFixupReference(7, 8), e.ModuleRefs[2]);
+    }
+
+    [Fact]
+    public void TypeMapAssemblyTargets_HugeModuleCount_ThrowsBeforeAllocation()
+    {
+        byte[] entryData = ImportRef(1, 2)
+            .Concat(EncodeUnsigned(int.MaxValue))
+            .ToArray();
+        byte[] image = BuildSingleSectionImage(
+            ReadyToRunSectionType.TypeMapAssemblyTargets,
+            BuildOneEntryHashtable(entryData),
+            out _);
+        using ReadyToRunReader reader = CreateReader(image);
+        ReadyToRunSection section = FindSection(reader.GetSections(), ReadyToRunSectionType.TypeMapAssemblyTargets);
+
+        Assert.Throws<BadImageFormatException>(() => reader.GetTypeMapAssemblyTargetsTable(section));
+    }
+
+    [Fact]
+    public void NewTypedSectionReaders_RejectUnknownFutureMajorVersion()
+    {
+        byte[] image = WebcilImageBuilder.BuildRawWebcil(
+            25,
+            0,
+            [new WebcilImageBuilder.R2RSectionSpec(ReadyToRunSectionType.ManifestAssemblyMvids, Array.Empty<byte>())]);
+        using ReadyToRunReader reader = CreateReader(image);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+
+        Assert.Throws<NotSupportedException>(() => reader.GetManifestAssemblyMvidsTable(section));
+        Assert.Empty(reader.GetSectionBytes(section));
+    }
+
+    [Fact]
+    public void NewTypedSectionReaders_RejectMismatchedSectionType()
+    {
+        byte[] image = BuildSingleSectionImage(
+            ReadyToRunSectionType.ManifestMetadata,
+            Array.Empty<byte>(),
+            out _);
+        using ReadyToRunReader reader = CreateReader(image);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+
+        Assert.Throws<ArgumentException>(() => reader.GetDelayLoadMethodCallThunksSection(section));
     }
 }

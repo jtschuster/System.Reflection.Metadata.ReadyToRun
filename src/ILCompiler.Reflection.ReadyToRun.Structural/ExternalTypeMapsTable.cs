@@ -88,16 +88,24 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
+        private static readonly UTF8Encoding s_strictUtf8 = new(
+            encoderShouldEmitUTF8Identifier: false,
+            throwOnInvalidBytes: true);
+        private Dictionary<ExternalTypeMapInnerHandle, (int StartOffset, int EndOffset)> _externalTypeMapRanges;
+
         /// <summary>
         /// Parses the ExternalTypeMaps section as an outer NativeHashtable of type-map groups.
         /// </summary>
         public ExternalTypeMapsTable GetExternalTypeMapsTable(ReadyToRunSection section)
         {
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            uint sectionEndOffset = (uint)(sectionOffset + section.Size);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ExternalTypeMaps,
+                nameof(GetExternalTypeMapsTable));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
 
             NativeParser outerParser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            NativeHashtable outerHashtable = new NativeHashtable(_nativeReader, outerParser, sectionEndOffset);
+            NativeHashtable outerHashtable = new NativeHashtable(_nativeReader, outerParser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = outerHashtable.EnumerateAllEntries();
 
             var groups = new List<ExternalTypeMapGroup>();
@@ -114,8 +122,8 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                 if (state != 0)
                 {
-                    // The inner hashtable starts at the current parser position.
                     innerHandle = (ExternalTypeMapInnerHandle)curParser.Offset;
+                    RegisterExternalTypeMapRange(innerHandle, sectionOffset, sectionEndOffset);
                 }
 
                 groups.Add(new ExternalTypeMapGroup(groupRef, state, innerHandle));
@@ -130,18 +138,16 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <paramref name="handle"/>. Each entry is a UTF-8 key to result-type reference mapping.
         /// </summary>
         /// <param name="handle">The inner handle from <see cref="ExternalTypeMapGroup.InnerHandle"/>.</param>
-        /// <param name="outerSectionEndOffset">
-        /// The file offset of the end of the outer section (used as the inner hashtable's end bound).
-        /// </param>
         public IReadOnlyList<ExternalTypeMapEntry> GetExternalTypeMapEntries(
-            ExternalTypeMapInnerHandle handle,
-            int outerSectionEndOffset)
+            ExternalTypeMapInnerHandle handle)
         {
+            EnsureSemanticDecodingSupported(nameof(GetExternalTypeMapEntries));
             if (handle == default)
                 return Array.Empty<ExternalTypeMapEntry>();
 
+            (int _, int sectionEndOffset) = GetExternalTypeMapRange(handle);
             NativeParser innerParser = new NativeParser(_nativeReader, (uint)handle);
-            NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)outerSectionEndOffset);
+            NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = innerHashtable.EnumerateAllEntries();
 
             var entries = new List<ExternalTypeMapEntry>();
@@ -149,16 +155,25 @@ namespace System.Reflection.Metadata.ReadyToRun
             NativeParser curParser = enumerator.GetNext();
             while (!curParser.IsNull())
             {
-                // Read UTF-8 string key: NativeFormat encodes as length (unsigned) + raw bytes.
                 uint keyLength = curParser.GetUnsigned();
-                byte[] keyBytes = new byte[keyLength];
+                if (keyLength > sectionEndOffset - (long)curParser.Offset)
+                    throw new BadImageFormatException("External type-map key extends beyond its containing section.");
+
+                byte[] keyBytes = new byte[(int)keyLength];
                 int rawOffset = (int)curParser.Offset;
                 _nativeReader.ReadSpanAt(ref rawOffset, keyBytes);
                 curParser.Offset = (uint)rawOffset;
 
-                string key = Encoding.UTF8.GetString(keyBytes);
+                string key;
+                try
+                {
+                    key = s_strictUtf8.GetString(keyBytes);
+                }
+                catch (DecoderFallbackException exception)
+                {
+                    throw new BadImageFormatException("External type-map key contains invalid UTF-8.", exception);
+                }
 
-                // Read the result type reference: (importSectionIndex, fixupIndex).
                 uint resultSectionIdx = curParser.GetUnsigned();
                 uint resultFixupIdx = curParser.GetUnsigned();
 
@@ -167,6 +182,32 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
 
             return entries;
+        }
+
+        private void RegisterExternalTypeMapRange(
+            ExternalTypeMapInnerHandle handle,
+            int sectionStartOffset,
+            int sectionEndOffset)
+        {
+            uint rawOffset = (uint)handle;
+            if (rawOffset < sectionStartOffset || rawOffset >= sectionEndOffset)
+                throw new BadImageFormatException("External type-map inner table starts outside its containing section.");
+
+            _externalTypeMapRanges ??= new Dictionary<ExternalTypeMapInnerHandle, (int, int)>();
+            _externalTypeMapRanges[handle] = (sectionStartOffset, sectionEndOffset);
+        }
+
+        private (int StartOffset, int EndOffset) GetExternalTypeMapRange(ExternalTypeMapInnerHandle handle)
+        {
+            if (_externalTypeMapRanges is null
+                || !_externalTypeMapRanges.TryGetValue(handle, out var range))
+            {
+                throw new ArgumentException(
+                    "The external type-map handle was not created by this ReadyToRunReader.",
+                    nameof(handle));
+            }
+
+            return range;
         }
     }
 }

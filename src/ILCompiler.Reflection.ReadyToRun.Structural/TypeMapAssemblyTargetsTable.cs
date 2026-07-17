@@ -59,11 +59,14 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public TypeMapAssemblyTargetsTable GetTypeMapAssemblyTargetsTable(ReadyToRunSection section)
         {
-            int sectionOffset = GetOffsetForRVA(section.RelativeVirtualAddress);
-            uint sectionEndOffset = (uint)(sectionOffset + section.Size);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.TypeMapAssemblyTargets,
+                nameof(GetTypeMapAssemblyTargetsTable));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
 
             NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, sectionEndOffset);
+            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = hashtable.EnumerateAllEntries();
 
             var entries = new List<TypeMapAssemblyTargetsEntry>();
@@ -76,8 +79,14 @@ namespace System.Reflection.Metadata.ReadyToRun
                 uint groupFixupIdx = curParser.GetUnsigned();
                 var groupRef = new ImportFixupReference(groupSectionIdx, groupFixupIdx);
 
-                // Read the VertexSequence of module references: count then N * (sectionIdx, fixupIdx).
                 uint moduleCount = curParser.GetUnsigned();
+                long remainingByteCount = sectionEndOffset - (long)curParser.Offset;
+                if (moduleCount > remainingByteCount / 2)
+                {
+                    throw new BadImageFormatException(
+                        "Type-map assembly target count exceeds its containing section.");
+                }
+
                 var moduleRefs = new List<ImportFixupReference>((int)moduleCount);
 
                 for (uint i = 0; i < moduleCount; i++)

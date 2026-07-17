@@ -374,24 +374,36 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// <summary>
     /// based on <a href="https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/nativeformatreader.h">NativeFormat::NativeHashtable</a>
     /// </summary>
-    public struct NativeCuckooFilter
+    public readonly struct NativeCuckooFilter
     {
         // TODO (refactoring) - all these Native* class should be private
-        private NativeReader _imageReader;
-        private int _filterStartOffset;
-        private int _filterEndOffset;
+        private readonly NativeReader _imageReader;
+        private readonly int _filterStartOffset;
+        private readonly int _filterEndOffset;
 
         public NativeCuckooFilter(NativeReader imageReader, int filterStartOffset, int filterEndOffset)
         {
+            if (imageReader is null)
+                throw new ArgumentNullException(nameof(imageReader));
+            if (filterStartOffset < 0
+                || filterEndOffset < filterStartOffset
+                || filterEndOffset > imageReader.Length)
+            {
+                throw new BadImageFormatException("Native cuckoo filter range is outside the image.");
+            }
+
             _imageReader = imageReader;
             _filterStartOffset = filterStartOffset;
             _filterEndOffset = filterEndOffset;
 
             if (((_filterStartOffset & 0xF) != 0) || ((_filterEndOffset & 0xF) != 0))
             {
-                // Native cuckoo filters must be aligned at 16byte boundaries within the PE file
-                throw new System.BadImageFormatException();
+                throw new BadImageFormatException("Native cuckoo filters must be aligned to 16-byte boundaries.");
             }
+
+            int bucketCount = BucketCount;
+            if (bucketCount != 0 && (bucketCount & (bucketCount - 1)) != 0)
+                throw new BadImageFormatException("Native cuckoo filter bucket count must be a power of two.");
         }
 
         /// <summary>Number of 16-byte buckets in the filter (each holds 8 ushort fingerprints).</summary>

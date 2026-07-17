@@ -38,6 +38,12 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// For semantic access, use <see cref="GetManifestMetadataReader"/> instead.
         /// </remarks>
         public ManifestMetadataSection GetManifestMetadataSection(ReadyToRunSection section)
-            => new ManifestMetadataSection(section.RelativeVirtualAddress, section.Size);
+        {
+            ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ManifestMetadata,
+                nameof(GetManifestMetadataSection));
+            return new ManifestMetadataSection(section.RelativeVirtualAddress, section.Size);
+        }
     }
 }
