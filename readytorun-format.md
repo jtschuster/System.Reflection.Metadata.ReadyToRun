@@ -1,3 +1,8 @@
+---
+title: "ReadyToRun File Format"
+description: "CoreCLR ReadyToRun layout, archival-version compatibility, validation policy, and section encodings."
+---
+
 ReadyToRun File Format
 ======================
 
@@ -8,14 +13,182 @@ Revisions:
 * 5.3 - [Tomas Rylek](https://github.com/trylek) - 2021
 * 5.4 - [David Wrighton](https://github.com/davidwrighton) - 2021
 * 6.3 - [David Wrighton](https://github.com/davidwrighton) - 2022
+* 24.0 - Structural reader compatibility through the selected preview format - 2026
 
 # Introduction
 
-This document describes ReadyToRun format 3.1 implemented in CoreCLR as of June 2019 and not yet
-implemented proposed extensions 4.1 for the support of composite R2R file format.
+This document describes the CoreCLR ReadyToRun format from its archival 1.2 layout through the
+selected 24.0 preview layout. The structural reader selects version-sensitive behavior through one
+immutable format profile rather than treating the newest layout as universal
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunFormatProfile.cs:17`).
 **Composite R2R file format** has basically the same structure as the traditional R2R file format
 defined in earlier revisions except that the output file represents a larger number of input MSIL
 assemblies compiled together as a logical unit.
+
+# Structural reader compatibility
+
+## Overview
+
+`ReadyToRunReader` separates byte-preserving structure from semantic traversal. Header fields,
+directory rows, raw section bytes, indices, and opaque handles remain inspectable without resolving
+metadata or following stored pointers. Typed decoders validate the requested section type and byte
+range before interpreting it (`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunReader.cs:181`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunReader.cs:246`).
+
+```mermaid
+flowchart LR
+    Image[R2R image] --> Header[Header and directory]
+    Header --> Profile[Version profile]
+    Profile -->|known major| Typed[Typed structural decoder]
+    Profile -->|unknown major| Raw[Raw section bytes only]
+    Typed --> Model[Encoded fields and opaque handles]
+    Model --> Reader[Reader-owned traversal]
+    style Image fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Header fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Profile fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Typed fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Raw fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Model fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Reader fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+```
+
+The default `Tolerant` policy preserves well-formed unknown values. `Strict` rejects unknown
+versions, flags, and discriminants when their containing structure is decoded
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunReaderOptions.cs:9`).
+Unknown major versions still permit header, directory, and `GetSectionBytes` access, while semantic
+decoders fail lazily with `NotSupportedException`
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunFormatProfile.cs:140`).
+
+```mermaid
+flowchart TB
+    Directory[Section directory row: type, RVA, size] --> Descriptor[Structural descriptor]
+    Directory --> Range[Reader validates contiguous image range]
+    Descriptor --> Handle[Opaque RVA or offset handle]
+    Handle --> Traversal[Reader method follows pointer or nested table]
+    Range --> Traversal
+    Traversal --> Payload[Adjacent encoded payload fields]
+    style Directory fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Descriptor fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Range fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Handle fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Traversal fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+    style Payload fill:#2d333b,stroke:#6d5dfc,color:#e6edf3
+```
+
+This ownership boundary prevents a model row from combining one inline field with data obtained by
+dereferencing an unrelated RVA. Nested type-map handles, debug-info offsets, method payloads, and PGO
+payloads retain their containing range inside the reader before later traversal
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:126`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:47`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:48`).
+
+## Supported version ledger
+
+The exact known revisions are encoded in `ReadyToRunFormatProfile.IsKnownVersion`
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunFormatProfile.cs:153`):
+
+| Major version | Known minor versions |
+|---:|:---|
+| 1 | 2 |
+| 2 | 0-3 |
+| 3 | 0-2 |
+| 4 | 1-2 |
+| 5 | 1-4 |
+| 6 | 0-3 |
+| 7 | 0-1 |
+| 8 | 0 |
+| 9 | 0-3 |
+| 10 | 0-1 |
+| 11-12 | 0 |
+| 13 | 0-1 |
+| 14-16 | 0 |
+| 17 | 0-1 |
+| 18 | 0-7 |
+| 19-24 | 0 |
+
+Stable release anchors and the selected preview ceiling are:
+
+| Runtime release | R2R header |
+|:---|---:|
+| .NET Core 1.0 | 1.2 |
+| .NET Core 1.1 | 2.0 |
+| .NET Core 2.x | 2.2 |
+| .NET Core 3.x | 3.1 |
+| .NET 5 | 4.1 |
+| .NET 6 | 5.4 |
+| .NET 7 | 8.0 |
+| .NET 8 | 9.1 |
+| .NET 9 | 10.1 |
+| .NET 10 | 16.0 |
+| Selected preview | 24.0 |
+
+An unknown minor under a known major reports `CompatibleUnknownMinorVersion`; tolerant mode uses the
+known major layout while preserving unknown extensible values. Major versions above 24 report
+`UnknownMajorVersion` (`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunFormatProfile.cs:21`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunHeader.cs:48`).
+
+## Encoding transitions
+
+| Capability | Boundary | Reader selection |
+|:---|:---|:---|
+| Method-signature `UpdateContext` | 5.4 | Accepted at 5.4 and later |
+| Component manifest index base | 6.3 | Base changes from 1 to 2 |
+| GCInfo v1 | R2R 1.x | Version 1 decoder |
+| GCInfo v2 | R2R 2.0-9.1 | Version 2 decoder |
+| GCInfo v3 | R2R 9.2-10.x | Version 3 decoder |
+| GCInfo v4 | R2R 11-20 | Normalized code offsets |
+| GCInfo v5 | R2R 21+ | Version 5 selection |
+| Packed debug bounds | 16.0 | Packed bounds replace the legacy nibble form |
+| Fat/async debug header | 17.0 | Optional payload lengths and async records |
+| Native variable `AsyncContinuation` | 20.0 | Version-20 variable numbering |
+| Reordered native variables and `CallReturnValue` | 22.0 | Version-22 record layout |
+| Method-signature `AsyncVariant` | 24.0 | Accepted at 24.0 and later |
+
+These boundaries come from the profile capability properties
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunFormatProfile.cs:38`).
+GCInfo v4 is also where the architecture decoder begins denormalizing code offsets
+(`src/ILCompiler.Reflection.ReadyToRun/Amd64/GcInfo.cs:47`,
+`src/ILCompiler.Reflection.ReadyToRun/Amd64/GcInfo.cs:89`).
+
+## Validation and errors
+
+| Condition | Result |
+|:---|:---|
+| Unknown major requested through a typed decoder | `NotSupportedException` |
+| Unknown minor or extensible discriminant in tolerant mode | Preserve and decode the known layout |
+| Unknown version/discriminant in strict mode | `NotSupportedException` |
+| Wrong section type passed to a typed decoder | `ArgumentException` |
+| Truncation, overflow, invalid RVA, invalid alignment, impossible count, or cross-section pointer | `BadImageFormatException` |
+| Unknown-major raw section request | Exact bytes returned |
+
+Every typed section entry point uses the same type/version gate, and `ValidateAndGetSectionOffset`
+requires a contiguous in-image mapping for the full directory range
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunReader.cs:202`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunReader.cs:246`).
+NativeArray and NativeHashtable payloads additionally retain explicit end offsets so malformed
+relative offsets cannot bleed into the following section
+(`src/ILCompiler.Reflection.ReadyToRun/NativeHashtable.cs:128`,
+`src/ILCompiler.Reflection.ReadyToRun/NativeHashtable.cs:299`).
+
+## Scope boundary
+
+The compatibility profile covers CoreCLR ReadyToRun section IDs 100-126, except obsolete ID 107.
+NativeAOT module headers and NativeAOT-only section IDs use a different container contract and are
+not interpreted by this reader (`src/Common/Internal/Runtime/ModuleHeaders.cs:53`).
+
+## Maintaining reference parity
+
+When CoreCLR increments the format, update the copied constants, the maximum supported header,
+`ReadyToRunFormatProfile.IsKnownVersion`, capability-boundary tests, and this ledger together. The
+constants source records the upstream files that must be compared
+(`src/Common/Internal/Runtime/ReadyToRunConstants.cs:6`), and
+`ConstantsTrackPreviewFormat24AndPreserveHistoricalValues` locks the current ceiling plus historical
+signature, fixup, and helper numeric values
+(`tests/System.Reflection.Metadata.ReadyToRun.Tests/CompatibilityDecodingTests.cs:17`).
+`KnownVersionsAreSupportedInStrictMode` separately enumerates stable and transition revisions so
+adding a version is an explicit compatibility decision rather than a numeric-range assumption
+(`tests/System.Reflection.Metadata.ReadyToRun.Tests/ReadyToRunCompatibilityTests.cs:15`,
+`tests/System.Reflection.Metadata.ReadyToRun.Tests/ReadyToRunCompatibilityTests.cs:73`).
 
 # PE Headers and CLI Headers
 
@@ -187,6 +360,9 @@ The following section types are defined and described later in this document:
 | MethodIsGenericMap        |   121 | Assembly (Added in V9.0)
 | EnclosingTypeMap          |   122 | Assembly (Added in V9.0)
 | TypeGenericInfoMap        |   123 | Assembly (Added in V9.0)
+| ExternalTypeMaps          |   124 | Assembly (added in V18.3)
+| ProxyTypeMaps             |   125 | Assembly (added in V18.3)
+| TypeMapAssemblyTargets    |   126 | Assembly (added in V18.3)
 
 ## ReadyToRunSectionType.CompilerIdentifier
 
@@ -490,16 +666,27 @@ Same encoding is as used by NGen.
 
 ## ReadyToRunSectionType.DebugInfo
 
-This section contains information to support debugging: native offset and local variable maps.
+This section is a NativeArray mapping runtime-function IDs to debug payload handles. A payload begins
+with bounds and variable-map lengths; R2R 16.0 switches bounds to the packed representation, while
+R2R 17.0 adds the fat header used for optional uninstrumented bounds, patchpoints, rich debug data,
+and async information (`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:28`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfo.cs:115`).
 
-**TODO**: Document the debug info encoding. It is the same encoding as used by NGen. It should not be
-required when debuggers are able to handle debug info stored separately.
+NativeArray lookbacks and every declared payload length must remain inside this section. The reader
+registers the section range when it produces each `DebugInfoOffset`, so a later payload decode cannot
+consume an adjacent section (`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:42`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfo.cs:97`).
 
 ## ReadyToRunSectionType.DelayLoadMethodCallThunks
 
 This section marks region that contains thunks for `READYTORUN_HELPER_DelayLoad_MethodCall`
 helper. It is used by debugger for step-in into lazily resolved calls. It should not be required when
 debuggers are able to handle debug info stored separately.
+
+Individual thunk boundaries are not encoded. A structural reader therefore exposes only the
+directory RVA and byte length; the target architecture remains an image-level property
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/DelayLoadMethodCallThunksSection.cs:18`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/DelayLoadMethodCallThunksSection.cs:37`).
 
 ## ReadyToRunSectionType.AvailableTypes
 
@@ -541,11 +728,36 @@ will proceed to every module which specified `READYTORUN_FLAG_UNRELATED_R2R_CODE
 
 ## ReadyToRunSectionType.InliningInfo (v2.1+)
 
-**TODO**: document inlining info encoding
+The legacy section begins with a signed 32-bit byte size for an index of fixed eight-byte records.
+Each record contains an inlinee MethodDef RID followed by a signed offset, relative to the end of the
+index, to its inliner list. The target list starts with a nibble-encoded count followed by
+delta-encoded inliner RIDs (`src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:31`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:72`).
+
+The format was deprecated in 4.1 in favor of `InliningInfo2`. Negative or non-record-aligned index
+sizes, out-of-section list offsets, overflowing RID deltas, and counts larger than the available
+nibble stream are malformed.
 
 ## ReadyToRunSectionType.ProfileDataInfo (v2.2+)
 
-**TODO**: document profile data encoding
+This legacy IBC section is a pointer-linked list. Each record contains these adjacent fields:
+
+| Field | Size | Description |
+|:---|---:|:---|
+| NextHandle | target pointer size | Relocated image VA of the next record, or zero |
+| Size | 4 | Size of the five-field method header plus payload; excludes `NextHandle` |
+| Detail | 4 | `cDetail` |
+| MethodToken | 4 | Profiled MethodDef token |
+| ILSize | 4 | Method IL byte length |
+| BlockCount | 4 | Number of block-count records |
+| Payload | `Size - 20` | Raw profile payload |
+
+Following `NextHandle` is a reader operation rather than an entry-model property expansion. The
+reader detects cycles, requires every target and complete record to remain in the section, and
+converts stored image VAs only through the platform container
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ProfileDataInfoTable.cs:102`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ProfileDataInfoTable.cs:125`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ProfileDataInfoTable.cs:145`).
 
 ## ReadyToRunSectionType.ManifestMetadata (v2.3+ with changes for v6.3+)
 
@@ -584,9 +796,23 @@ For R2R version 6.3 and above
 
 In addition, a ModuleRef within the module which refers to `System.Private.CoreLib` may be used to serve as the *ResolutionContext* of a *TypeRef* within the manifest metadata. This will always refer to the module which contains the `System.Object` type.
 
+Structurally, the section directory already supplies the metadata blob RVA and size. The reader can
+return that descriptor without opening the ECMA-335 metadata; semantic access is a separate
+`GetManifestMetadataReader` operation
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ManifestMetadataSection.cs:16`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ManifestMetadataSection.cs:40`).
+
 ## ReadyToRunSectionType.AttributePresence (v3.1+)
 
-**TODO**: document attribute presence encoding
+The section is a NativeCuckooFilter. Its byte range is 16-byte aligned, its nonzero size is a power
+of two, and each 16-byte bucket contains eight little-endian 16-bit fingerprints
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/AttributePresenceSection.cs:60`,
+`src/ILCompiler.Reflection.ReadyToRun/NativeHashtable.cs:384`).
+
+Membership checks normalize fingerprint zero to one, probe
+`hashcode & (bucketCount - 1)`, then probe that bucket XORed with
+`fingerprint & (bucketCount - 1)`. A `true` result is probabilistic; `false` is definitive for a
+present filter (`src/ILCompiler.Reflection.ReadyToRun/NativeHashtable.cs:440`).
 
 **Note:** This is a per-assembly section. In single-file R2R files, it is pointed to directly by the
 main R2R header; in composite R2R files, each component module has its own attribute presence
@@ -614,8 +840,9 @@ image-wide [`CrossModuleInlineInfo`](#readytorunsectiontypecrossmoduleinlineinfo
 section supersedes the image-wide use of `InliningInfo2` for cross-module inlines in
 composite images and may be emitted alongside the per-assembly `InliningInfo2` sections.
 
-**TODO:** It remains to be seen whether `DelayLoadMethodCallThunks` and / or
-`InliningInfo` also require changes specific to the composite R2R file format.
+The structural reader does not infer composite-specific records for `DelayLoadMethodCallThunks` or
+the legacy `InliningInfo` section. It decodes only their directory-declared byte ranges and encoded
+payloads.
 
 ## ReadyToRunSectionType.ComponentAssemblies (v4.1+)
 
@@ -644,7 +871,15 @@ information to locate the composite R2R executable with the compiled native code
 
 ## ReadyToRunSectionType.PgoInstrumentationData (v5.2+)
 
-**TODO**: document PGO instrumentation data
+This section is a NativeHashtable whose payload begins with a method signature followed by a
+compressed `versionAndFlags` value. Tag 1 places the schema data inline. Tag 3 adds a compressed
+back-reference delta to a previously emitted schema blob. The remaining high bits are the PGO
+format version (`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:31`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:94`).
+
+The structural API returns an opaque `PgoDataBlobOffset`; interpretation of the schema-driven PGO
+records is left to higher layers. Both inline and back-referenced offsets remain bounded by the
+containing section (`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:101`).
 
 ## ReadyToRunSectionType.ManifestAssemblyMvids (v5.3+)
 
@@ -652,6 +887,8 @@ This section is a binary array of 16-byte MVID records, one for each assembly in
 Number of assemblies stored in the manifest metadata is equal to the number of MVID records in the array.
 MVID records are used at runtime to verify that the assemblies loaded match those referenced by the
 manifest metadata representing the versioning bubble.
+There is no count prefix; the count is the section size divided by 16, and any remainder is malformed
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ManifestAssemblyMvidsTable.cs:38`).
 
 ## ReadyToRunSectionType.CrossModuleInlineInfo (v6.3+)
 The inlining information section captures what methods got inlined into other methods. It consists of a single _Native Format Hashtable_ (described below).
@@ -715,6 +952,59 @@ TypeGenericInfoMap entries have 4 bits representing 3 different sets of informat
 1. What is the count of generic parameters (0, 1, 2, MoreThanTwo) (This is represented in the least significant 2 bits of the TypeGenericInfoMap entry)
 2. Are there any constraints on the generic parameters? (This is the 3rd bit of the entry)
 3. Do any of the generic parameters have co or contra variance? (This is the 4th bit of the entry)
+
+## ReadyToRunSectionType.ExternalTypeMaps (v18.3+)
+
+This assembly section is an outer NativeHashtable of type-map groups. Each outer entry consists of:
+
+1. A group type `ImportFixupReference`.
+2. A compressed state value.
+3. When state is nonzero, an inner NativeHashtable beginning immediately at the next byte.
+
+The inner table maps a compressed UTF-8 byte length and key bytes to a result
+`ImportFixupReference`. UTF-8 is decoded strictly, and both the key and inner hashtable must remain
+inside the original section (`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:99`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:141`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:158`).
+
+The group model stores an opaque `ExternalTypeMapInnerHandle`; the reader privately associates it
+with the originating section range before `GetExternalTypeMapEntries` can traverse it
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:47`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:187`).
+
+## ReadyToRunSectionType.ProxyTypeMaps (v18.3+)
+
+This section has the same outer group/state/inline-inner-table shape as `ExternalTypeMaps`. Each
+inner entry contains two adjacent type references instead of a string:
+
+| Field | Encoding |
+|:---|:---|
+| KeyRef | Compressed import-section index, then compressed fixup index |
+| ValueRef | Compressed import-section index, then compressed fixup index |
+
+The inner-table handle is opaque and usable only by the `ReadyToRunReader` instance that created it;
+the reader-owned range prevents forged handles from escaping into another section
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ProxyTypeMapsTable.cs:95`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ProxyTypeMapsTable.cs:137`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ProxyTypeMapsTable.cs:172`).
+
+## ReadyToRunSectionType.TypeMapAssemblyTargets (v18.3+)
+
+This section is a NativeHashtable mapping a group type to an ordered module sequence:
+
+1. Group type import-section index and fixup index.
+2. Compressed module count.
+3. That many adjacent module import-section index and fixup index pairs.
+
+The count is bounded by the bytes remaining in the section before allocation
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/TypeMapAssemblyTargetsTable.cs:60`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/TypeMapAssemblyTargetsTable.cs:82`).
+
+All references in sections 124-126 are structural pairs. `ImportFixupReference` deliberately stores
+only `ImportSectionIndex` and `FixupIndex`; resolving either index to a runtime type or module is not
+part of these entry models
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ImportFixupReference.cs:8`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ImportFixupReference.cs:17`).
 
 # Native Format
 
