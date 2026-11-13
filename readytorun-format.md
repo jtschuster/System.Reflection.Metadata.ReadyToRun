@@ -14,11 +14,12 @@ Revisions:
 * 5.4 - [David Wrighton](https://github.com/davidwrighton) - 2021
 * 6.3 - [David Wrighton](https://github.com/davidwrighton) - 2022
 * 24.0 - Structural reader compatibility through the selected preview format - 2026
+* 34.0 - Updated to the current runtime-main format - 2026
 
 # Introduction
 
 This document describes the CoreCLR ReadyToRun format from its archival 1.2 layout through the
-selected 24.0 preview layout. The structural reader selects version-sensitive behavior through one
+34.0 layout. The structural reader selects version-sensitive behavior through one
 immutable format profile rather than treating the newest layout as universal
 (`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunFormatProfile.cs:17`).
 **Composite R2R file format** has basically the same structure as the traditional R2R file format
@@ -105,6 +106,15 @@ The exact known revisions are encoded in `ReadyToRunFormatProfile.IsKnownVersion
 | 17 | 0-1 |
 | 18 | 0-7 |
 | 19-24 | 0 |
+| 25 | 0 |
+| 26-27 | 0-1 |
+| 28 | 0 |
+| 29 | 0-3 |
+| 30 | 0 |
+| 31 | 0-1 |
+| 32 | 0 |
+| 33 | 0-1 |
+| 34 | 0 |
 
 Stable release anchors and the selected preview ceiling are:
 
@@ -120,10 +130,10 @@ Stable release anchors and the selected preview ceiling are:
 | .NET 8 | 9.1 |
 | .NET 9 | 10.1 |
 | .NET 10 | 16.0 |
-| Selected preview | 24.0 |
+| Current runtime-main | 34.0 |
 
 An unknown minor under a known major reports `CompatibleUnknownMinorVersion`; tolerant mode uses the
-known major layout while preserving unknown extensible values. Major versions above 24 report
+known major layout while preserving unknown extensible values. Major versions above 34 report
 `UnknownMajorVersion` (`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunFormatProfile.cs:21`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunHeader.cs:48`).
 
@@ -143,6 +153,11 @@ known major layout while preserving unknown extensible values. Major versions ab
 | Native variable `AsyncContinuation` | 20.0 | Version-20 variable numbering |
 | Reordered native variables and `CallReturnValue` | 22.0 | Version-22 record layout |
 | Method-signature `AsyncVariant` | 24.0 | Accepted at 24.0 and later |
+| ARM64 floating-point register locations | 26.0 | V0-V31 are representable |
+| Declaring-type fixup | 27.0 | A method signature replaces two type signatures |
+| Named type-map entries | 28.0 | State 2 appends serialized name pairs |
+| WebAssembly async resume-info fixups | 29.0 | Section 127 contains LEB128 chunks |
+| Import GC reference maps | 33.0 | Maps prefix signatures and receiver tokens change |
 
 These boundaries come from the profile capability properties
 (`src/ILCompiler.Reflection.ReadyToRun.Structural/ReadyToRunFormatProfile.cs:38`).
@@ -172,7 +187,7 @@ relative offsets cannot bleed into the following section
 
 ## Scope boundary
 
-The compatibility profile covers CoreCLR ReadyToRun section IDs 100-126, except obsolete ID 107.
+The compatibility profile covers CoreCLR ReadyToRun section IDs 100-127, except obsolete ID 107.
 NativeAOT module headers and NativeAOT-only section IDs use a different container contract and are
 not interpreted by this reader (`src/Common/Internal/Runtime/ModuleHeaders.cs:53`).
 
@@ -363,6 +378,7 @@ The following section types are defined and described later in this document:
 | ExternalTypeMaps          |   124 | Assembly (added in V18.3)
 | ProxyTypeMaps             |   125 | Assembly (added in V18.3)
 | TypeMapAssemblyTargets    |   126 | Assembly (added in V18.3)
+| WasmAsyncResumeInfo       |   127 | Image (added in V29)
 
 ## ReadyToRunSectionType.CompilerIdentifier
 
@@ -396,6 +412,7 @@ struct READYTORUN_IMPORT_SECTION
 | ReadyToRunImportSectionFlags::None     | 0x0000  | None
 | ReadyToRunImportSectionFlags::Eager    | 0x0001 | Set if the slots in the section have to be initialized at image load time. It is used to avoid lazy initialization when it cannot be done or when it would have undesirable reliability or performance effects (unexpected failure or GC trigger points, overhead of lazy initialization).
 | ReadyToRunImportSectionFlags::PCode    | 0x0004  | Section contains pointers to code
+| ReadyToRunImportSectionFlags::GCRefMap | 0x0008 | Signature RVA points to a GC reference map followed by the fixup (V33+).
 
 
 ### READYTORUN_IMPORT_SECTIONS::Type
@@ -452,7 +469,7 @@ fixup kind, the rest of the signature varies based on the fixup kind.
 | READYTORUN_FIXUP_Check_TypeLayout               |  0x2A | Verification of type layout, followed by typespec and expected type layout descriptor
 | READYTORUN_FIXUP_Check_FieldOffset              |  0x2B | Verification of field offset, followed by field signature and expected field layout descriptor
 | READYTORUN_FIXUP_DelegateCtor                   |  0x2C | Delegate constructor, followed by method signature
-| READYTORUN_FIXUP_DeclaringTypeHandle            |  0x2D | Dictionary lookup for method declaring type. Followed by the type signature.
+| READYTORUN_FIXUP_DeclaringTypeHandle            |  0x2D | Before V27, two type signatures; from V27, a method signature.
 | READYTORUN_FIXUP_IndirectPInvokeTarget          |  0x2E | Target (indirect) of an inlined PInvoke. Followed by method signature.
 | READYTORUN_FIXUP_PInvokeTarget                  |  0x2F | Target of an inlined PInvoke. Followed by method signature.
 | READYTORUN_FIXUP_Check_InstructionSetSupport    |  0x30 | Specify the instruction sets that must be supported/unsupported to use the R2R code associated with the fixup.
@@ -465,6 +482,8 @@ fixup kind, the rest of the signature varies based on the fixup kind.
 | READYTORUN_FIXUP_ContinuationLayout             |  0x37 | Layout of an async method continuation type, followed by typespec signature
 | READYTORUN_FIXUP_ResumptionStubEntryPoint       |  0x38 | Entry point of an async method resumption stub
 | READYTORUN_FIXUP_InjectStringThunks             |  0x39 | Inject pregenerated string-to-code thunk mappings. See [InjectStringThunks signatures](#injectstringthunks-signatures) for details.
+| READYTORUN_FIXUP_StoreMultiCallableAddrOfCode    |  0x3A | Two 32-bit RVAs: target code and destination (V26.1+).
+| READYTORUN_FIXUP_MethodEntry_ReadyToRun          |  0x3B | ReadyToRun method entry initialization, followed by a method signature (V31+).
 | READYTORUN_FIXUP_ModuleOverride                 |  0x80 | When or-ed to the fixup ID, the fixup byte in the signature is followed by an encoded uint with assemblyref index, either within the MSIL metadata of the master context module for the signature or within the manifest metadata R2R header table (used in cases inlining brings in references to assemblies not seen in the input MSIL).
 
 #### Method Signatures
@@ -530,7 +549,10 @@ At runtime, the entries are merged into a global hash table. Strings already pre
 For slots resolved lazily via `READYTORUN_HELPER_DelayLoad_MethodCall` helper, auxiliary data are
 compressed argument maps that allow precise GC stack scanning while the helper is running. The CoreCLR runtime class [`GCRefMapDecoder`](https://github.com/dotnet/runtime/blob/69e114c1abf91241a0eeecf1ecceab4711b8aa62/src/coreclr/inc/gcrefmap.h#L158) is used to parse this information. This data would not be required for runtimes that allow conservative stack scanning.
 
-The auxiliary data table contains the exact same number of GC ref map records as there are method entries in the import section. To accelerate GC ref map lookup, the auxiliary data section starts with a lookup table holding the offset of every 1024-th method in the runtime function table within the linearized GC ref map.
+Before V33, the auxiliary data table contains one GC reference map per import entry, with a lookup
+table holding the offset of every 1024th map. Starting in V33, map-bearing import signatures
+instead contain the map immediately before the fixup. Use `GetImportSignature` with the owning
+import-section descriptor to decode both; direct `DecodeFixupSignature` expects the fixup RVA.
 
 |     Offset in auxiliary data | Size | Content
 |-----------------------------:|-----:|:-------
@@ -550,7 +572,9 @@ position of the reference in the stack frame and `token` is type of GC reference
 | GCREFMAP_INTERIOR          |     2 | Pointer to a GC reference
 | GCREFMAP_METHOD_PARAM      |     3 | Hidden method instantiation argument to generic method
 | GCREFMAP_TYPE_PARAM        |     4 | Hidden type instantiation argument to generic method
-| GCREFMAP_VASIG_COOKIE      |     5 | VARARG signature cookie
+| GCREFMAP_THIS_REF          |     5 | Contextual object receiver (V33+)
+| GCREFMAP_THIS_BYREF        |     6 | Contextual interior receiver (V33+)
+| GCREFMAP_VASIG_COOKIE      |     7 | VARARG signature cookie (5 before V33)
 
 The position values are calculated in `size_t` aka `IntPtr` units (4 bytes for 32-bit architectures vs. 8 bytes for 64-bit architectures) starting at the first position in the transition frame that may contain GC references. For all architectures except for **arm64** this is the beginning of the array of spilled argument registers. On arm64 it is the offset of the `X8` register used to pass the location to be filled in with the return value by the called method.
 
@@ -959,13 +983,16 @@ This assembly section is an outer NativeHashtable of type-map groups. Each outer
 
 1. A group type `ImportFixupReference`.
 2. A compressed state value.
-3. When state is nonzero, an inner NativeHashtable beginning immediately at the next byte.
+3. When state is 1 or 2, an inner NativeHashtable beginning immediately at the next byte.
 
 The inner table maps a compressed UTF-8 byte length and key bytes to a result
 `ImportFixupReference`. UTF-8 is decoded strictly, and both the key and inner hashtable must remain
 inside the original section (`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:99`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:141`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:158`).
+
+In V28 and later, state 2 appends a counted sequence of key and serialized target-name pairs
+after the inner hashtable. `GetExternalTypeMapNamedEntries` reads those entries separately.
 
 The group model stores an opaque `ExternalTypeMapInnerHandle`; the reader privately associates it
 with the originating section range before `GetExternalTypeMapEntries` can traverse it
@@ -981,6 +1008,9 @@ inner entry contains two adjacent type references instead of a string:
 |:---|:---|
 | KeyRef | Compressed import-section index, then compressed fixup index |
 | ValueRef | Compressed import-section index, then compressed fixup index |
+
+In V28 and later, state 2 appends a counted sequence of serialized source and proxy names.
+`GetProxyTypeMapNamedEntries` reads those entries separately.
 
 The inner-table handle is opaque and usable only by the `ReadyToRunReader` instance that created it;
 the reader-owned range prevents forged handles from escaping into another section
@@ -1005,6 +1035,13 @@ only `ImportSectionIndex` and `FixupIndex`; resolving either index to a runtime 
 part of these entry models
 (`src/ILCompiler.Reflection.ReadyToRun.Structural/ImportFixupReference.cs:8`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/ImportFixupReference.cs:17`).
+
+## ReadyToRunSectionType.WasmAsyncResumeInfo (v29+)
+
+This WebAssembly section contains an unsigned LEB128 chunk count followed by triples of delta,
+fixup count, and stride. `GetWasmAsyncResumeInfoTable` exposes the encoded triples without applying
+the fixups. WebAssembly unwind data similarly contains two LEB128 values: frame size and half the
+virtual instruction-pointer span.
 
 # Native Format
 

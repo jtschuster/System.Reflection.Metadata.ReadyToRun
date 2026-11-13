@@ -75,7 +75,7 @@ public abstract class R2RFixupPayload
 /// Payload containing a single type reference.
 /// Used by: TypeHandle, NewObject, NewArray, IsInstanceOf, ChkCast, CctorTrigger,
 /// StaticBaseNonGC, StaticBaseGC, ThreadStaticBaseNonGC, ThreadStaticBaseGC,
-/// FieldBaseOffset, TypeDictionary, DeclaringTypeHandle.
+/// FieldBaseOffset, TypeDictionary.
 /// </summary>
 public sealed class R2RTypeFixupPayload : R2RFixupPayload
 {
@@ -84,6 +84,36 @@ public sealed class R2RTypeFixupPayload : R2RFixupPayload
     public R2RTypeFixupPayload(R2RTypeNode type) => Type = type;
 
     public override void AppendTo(StringBuilder sb) => Type.AppendTo(sb);
+}
+
+/// <summary>Legacy declaring-type fixup containing the declaring and token types.</summary>
+public sealed class R2RDeclaringTypeFixupPayload : R2RFixupPayload
+{
+    public R2RTypeNode DeclaringType { get; }
+    public R2RTypeNode TokenType { get; }
+
+    public R2RDeclaringTypeFixupPayload(R2RTypeNode declaringType, R2RTypeNode tokenType)
+        => (DeclaringType, TokenType) = (declaringType, tokenType);
+
+    public override void AppendTo(StringBuilder sb)
+    {
+        DeclaringType.AppendTo(sb);
+        sb.Append(" of ");
+        TokenType.AppendTo(sb);
+    }
+}
+
+/// <summary>Target and destination RVAs for a WebAssembly code address fixup.</summary>
+public sealed class R2RStoreMultiCallableAddrFixupPayload : R2RFixupPayload
+{
+    public uint TargetRva { get; }
+    public uint LocationRva { get; }
+
+    public R2RStoreMultiCallableAddrFixupPayload(uint targetRva, uint locationRva)
+        => (TargetRva, LocationRva) = (targetRva, locationRva);
+
+    public override void AppendTo(StringBuilder sb)
+        => sb.Append($"target RVA:0x{TargetRva:X} location RVA:0x{LocationRva:X}");
 }
 
 /// <summary>

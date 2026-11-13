@@ -71,6 +71,17 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
     }
 
+    /// <summary>An import signature and its optional prefixed GC reference map.</summary>
+    public sealed class ImportSignature
+    {
+        public GCRefMap GCRefMap { get; }
+        public SignatureRva FixupSignatureRva { get; }
+        public R2RFixupSignature Fixup { get; }
+
+        internal ImportSignature(GCRefMap gcRefMap, SignatureRva fixupSignatureRva, R2RFixupSignature fixup)
+            => (GCRefMap, FixupSignatureRva, Fixup) = (gcRefMap, fixupSignatureRva, fixup);
+    }
+
     public partial class ReadyToRunReader
     {
         public ImportSectionsTableSection GetImportSectionsTableSection(ReadyToRunSection section)
@@ -104,8 +115,10 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                 if (ValidationMode == ReadyToRunValidationMode.Strict)
                 {
-                    const ReadyToRunImportSectionFlags knownFlags =
+                    ReadyToRunImportSectionFlags knownFlags =
                         ReadyToRunImportSectionFlags.Eager | ReadyToRunImportSectionFlags.PCode;
+                    if (FormatProfile.IsAtLeast(33, 0))
+                        knownFlags |= ReadyToRunImportSectionFlags.GCRefMap;
                     ReadyToRunImportSectionFlags unknownFlags = flags & ~knownFlags;
                     if (unknownFlags != 0)
                     {
@@ -150,6 +163,26 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
 
             return entry.SectionSize / entrySize;
+        }
+
+        /// <summary>Decodes a signature-table entry using the owning import section's flags.</summary>
+        public ImportSignature GetImportSignature(ImportSectionEntry entry, SignatureRva signatureRva)
+        {
+            EnsureSemanticDecodingSupported(nameof(GetImportSignature));
+            ArgumentNullException.ThrowIfNull(entry);
+            uint rva = (uint)signatureRva;
+            int offset = ValidateAndGetRvaRange(rva, 1, "Import signature");
+            GCRefMap map = null;
+            if ((entry.Flags & ReadyToRunImportSectionFlags.GCRefMap) != 0)
+            {
+                if (!FormatProfile.IsAtLeast(33, 0))
+                    throw new NotSupportedException("Prefixed GC reference maps require ReadyToRun 33 or later.");
+                map = DecodeGCRefMap(offset, out int endOffset);
+                int length = checked(endOffset - offset);
+                ValidateAndGetRvaRange(rva, checked(length + 1), "Import signature and GC reference map");
+                rva = checked(rva + (uint)length);
+            }
+            return new ImportSignature(map, (SignatureRva)rva, DecodeFixupSignature(checked((int)rva)));
         }
     }
 

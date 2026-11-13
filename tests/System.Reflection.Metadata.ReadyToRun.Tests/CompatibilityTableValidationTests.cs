@@ -35,7 +35,7 @@ public sealed class CompatibilityTableValidationTests
     public void UnknownMajorVersion_GatesEveryTypedSectionDecoder()
     {
         using ReadyToRunReader reader = CreateReader(
-            majorVersion: 25,
+            majorVersion: 35,
             minorVersion: 0,
             ReadyToRunSectionType.CompilerIdentifier,
             new byte[] { 0 });

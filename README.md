@@ -27,6 +27,9 @@ result with `System.Reflection.Metadata.ReadyToRun`, and compare the parsed
 header and section layout with R2RDump when `R2RDump` is available on `PATH` or
 via `R2RDUMP_PATH`.
 
+To also validate a real format 34 image, set `R2R_CURRENT_IMAGE_PATH` to an image produced by a
+current Crossgen2 before running the tests.
+
 ## License
 
 This project is derived from the .NET runtime repository and is licensed under the MIT license.

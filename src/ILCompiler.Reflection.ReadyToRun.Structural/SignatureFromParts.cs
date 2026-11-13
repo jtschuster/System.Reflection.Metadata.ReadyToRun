@@ -336,11 +336,18 @@ public sealed partial class R2RFixupSignature
             case ReadyToRunFixupKind.ThreadStaticBaseGC:
             case ReadyToRunFixupKind.FieldBaseOffset:
             case ReadyToRunFixupKind.TypeDictionary:
-            case ReadyToRunFixupKind.DeclaringTypeHandle:
                 return new R2RTypeFixupPayload(R2RTypeNode.FromParts(parts, ref index, contextModule));
+
+            case ReadyToRunFixupKind.DeclaringTypeHandle:
+                if (index < parts.Length && parts[index].Kind == SignaturePartKind.MethodFlags)
+                    return new R2RMethodFixupPayload(MethodSignature.FromParts(parts, ref index, contextModule));
+                return new R2RDeclaringTypeFixupPayload(
+                    R2RTypeNode.FromParts(parts, ref index, contextModule),
+                    R2RTypeNode.FromParts(parts, ref index, contextModule));
 
             case ReadyToRunFixupKind.MethodHandle:
             case ReadyToRunFixupKind.MethodEntry:
+            case ReadyToRunFixupKind.MethodEntry_ReadyToRun:
             case ReadyToRunFixupKind.VirtualEntry:
             case ReadyToRunFixupKind.MethodDictionary:
             case ReadyToRunFixupKind.IndirectPInvokeTarget:
@@ -390,6 +397,11 @@ public sealed partial class R2RFixupSignature
             case ReadyToRunFixupKind.ResumptionStubEntryPoint:
                 return new R2RStubEntryPointFixupPayload((int)
                     MethodSignature.Expect(parts, ref index, SignaturePartKind.ResumptionStubRva));
+
+            case ReadyToRunFixupKind.StoreMultiCallableAddrOfCode:
+                return new R2RStoreMultiCallableAddrFixupPayload(
+                    (uint)MethodSignature.Expect(parts, ref index, SignaturePartKind.StoreMultiCallableTargetRva),
+                    (uint)MethodSignature.Expect(parts, ref index, SignaturePartKind.StoreMultiCallableLocationRva));
 
             case ReadyToRunFixupKind.InjectStringThunks:
             {

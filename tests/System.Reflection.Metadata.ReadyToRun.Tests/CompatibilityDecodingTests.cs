@@ -14,9 +14,9 @@ namespace System.Reflection.Metadata.ReadyToRun.Tests;
 public sealed class CompatibilityDecodingTests
 {
     [Fact]
-    public void ConstantsTrackPreviewFormat24AndPreserveHistoricalValues()
+    public void ConstantsTrackCurrentFormatAndPreserveHistoricalValues()
     {
-        Assert.Equal((ushort)24, ReadyToRunHeaderConstants.CurrentMajorVersion);
+        Assert.Equal((ushort)34, ReadyToRunHeaderConstants.CurrentMajorVersion);
         Assert.Equal((ushort)0, ReadyToRunHeaderConstants.CurrentMinorVersion);
         Assert.Equal(ReadyToRunHeaderConstants.CurrentMajorVersion, ReadyToRunHeader.MAXIMUM_SUPPORTED_MAJOR_VERSION);
         Assert.Equal(ReadyToRunHeaderConstants.CurrentMinorVersion, ReadyToRunHeader.MAXIMUM_SUPPORTED_MINOR_VERSION);
@@ -146,6 +146,37 @@ public sealed class CompatibilityDecodingTests
             ReadyToRunSignatureDecodingOptions.Strict(24, 0)).Signature;
 
         Assert.Throws<BadImageFormatException>(() => R2RFixupSignature.FromSignature(signature));
+    }
+
+    [Fact]
+    public void DeclaringTypeHandleChangesFromTwoTypesToMethodAtVersion27()
+    {
+        byte[] legacy = { (byte)ReadyToRunFixupKind.DeclaringTypeHandle, 0x08, 0x0E };
+        R2RSignatureDecodeResult oldResult = DecodeFixup(legacy, ReadyToRunSignatureDecodingOptions.Strict(26, 1));
+        Assert.Equal(3, oldResult.EndOffset);
+        Assert.IsType<R2RDeclaringTypeFixupPayload>(R2RFixupSignature.FromSignature(oldResult.Signature).Payload);
+
+        byte[] current = { (byte)ReadyToRunFixupKind.DeclaringTypeHandle, 0x00, 0x01 };
+        R2RSignatureDecodeResult newResult = DecodeFixup(current, ReadyToRunSignatureDecodingOptions.Strict(27, 0));
+        Assert.Equal(3, newResult.EndOffset);
+        Assert.Equal(1, Assert.IsType<R2RMethodFixupPayload>(R2RFixupSignature.FromSignature(newResult.Signature).Payload).Method.Rid);
+    }
+
+    [Fact]
+    public void NewFixupsDecodeAndEnforceTheirVersionBoundaries()
+    {
+        byte[] store = { 0x3A, 0x78, 0x56, 0x34, 0x12, 0xEF, 0xCD, 0xAB, 0x90 };
+        Assert.Throws<NotSupportedException>(() => DecodeFixup(store, ReadyToRunSignatureDecodingOptions.Strict(26, 0)));
+        var result = DecodeFixup(store, ReadyToRunSignatureDecodingOptions.Strict(26, 1));
+        var payload = Assert.IsType<R2RStoreMultiCallableAddrFixupPayload>(R2RFixupSignature.FromSignature(result.Signature).Payload);
+        Assert.Equal(0x12345678u, payload.TargetRva);
+        Assert.Equal(0x90ABCDEFu, payload.LocationRva);
+        Assert.Equal(store.Length, result.EndOffset);
+
+        byte[] method = { 0x3B, 0x00, 0x01 };
+        Assert.Throws<NotSupportedException>(() => DecodeFixup(method, ReadyToRunSignatureDecodingOptions.Strict(30, 0)));
+        var methodFixup = R2RFixupSignature.FromSignature(DecodeFixup(method, ReadyToRunSignatureDecodingOptions.Strict(31, 0)).Signature);
+        Assert.Equal(1, Assert.IsType<R2RMethodFixupPayload>(methodFixup.Payload).Method.Rid);
     }
 
     private static R2RSignatureDecodeResult DecodeMethod(byte[] bytes, ReadyToRunSignatureDecodingOptions options)

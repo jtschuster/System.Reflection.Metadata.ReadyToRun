@@ -98,7 +98,7 @@ internal static class ReadyToRunSignatureCompatibility
     }
 
     internal static bool IsKnownHelperId(uint helperId)
-        => helperId <= (uint)ReadyToRunHelper.R2RToInterpreter
+        => helperId <= (uint)ReadyToRunHelper.WasmProfSamplepoint
             && Enum.IsDefined(typeof(ReadyToRunHelper), (ReadyToRunHelper)helperId);
 
     internal static void ValidateHelperId(uint helperId, IReadyToRunSignatureDecodingOptions options)

@@ -23,6 +23,8 @@ namespace Internal.ReadyToRunConstants
         READYTORUN_FLAG_StrippedILBodies = 0x00000200,         // IL method bodies have been stripped from the image
         READYTORUN_FLAG_StrippedInliningInfo = 0x00000400,     // Inlining info has been stripped from the image
         READYTORUN_FLAG_StrippedDebugInfo = 0x00000800,        // Debug info has been stripped from the image
+        READYTORUN_FLAG_VerifyGCModeTransitions = 0x00001000,
+        READYTORUN_FLAG_SingleThreaded = 0x00002000,
     }
 
     public enum ReadyToRunImportSectionType : byte
@@ -39,6 +41,7 @@ namespace Internal.ReadyToRunConstants
         None     = 0x0000,
         Eager    = 0x0001, // Section at module load time.
         PCode    = 0x0004, // Section contains pointers to code
+        GCRefMap = 0x0008, // Each signature is prefixed by its argument GC reference map.
     }
 
     /// <summary>
@@ -124,6 +127,7 @@ namespace Internal.ReadyToRunConstants
         DispatchStubAddrSlot = 5,
         FieldDescSlot = 6,
         DeclaringTypeHandleSlot = 7,
+        DeclaringTypeHandleFromMethodSlot = 8,
     }
 
     public enum ReadyToRunFixupKind
@@ -193,6 +197,8 @@ namespace Internal.ReadyToRunConstants
         ContinuationLayout = 0x37, /* Layout of an async method continuation type */
         ResumptionStubEntryPoint = 0x38, /* Entry point of an async method resumption stub */
         InjectStringThunks = 0x39, /* Inject pregenerated string-to-code thunk mappings into the global lookup table */
+        StoreMultiCallableAddrOfCode = 0x3A,
+        MethodEntry_ReadyToRun = 0x3B,
 
         ModuleOverride = 0x80,
         // followed by sig-encoded UInt with assemblyref index into either the assemblyref
@@ -248,6 +254,7 @@ namespace Internal.ReadyToRunConstants
         CheckedWriteBarrier         = 0x31,
         ByRefWriteBarrier           = 0x32, // No longer supported as of READYTORUN_MAJOR_VERSION 19.0
         BulkWriteBarrier            = 0x33,
+        BulkWriteBarrierSmall       = 0x34,
 
         // Array helpers
         Stelem_Ref                  = 0x38,
@@ -264,6 +271,7 @@ namespace Internal.ReadyToRunConstants
         GCPoll                      = 0x44,
         ReversePInvokeEnter         = 0x45,
         ReversePInvokeExit          = 0x46,
+        ResumeAfterCatch            = 0x47,
 
         // Get string handle lazily
         GetString                   = 0x50, // No longer supported as of READYTORUN_MAJOR_VERSION 17.0
@@ -371,6 +379,7 @@ namespace Internal.ReadyToRunConstants
         InitClass                   = 0x116,
         InitInstClass               = 0x117,
         R2RToInterpreter            = 0x118,
+        WasmProfSamplepoint         = 0x119,
 
         // **********************************************************************************************
         //

@@ -334,6 +334,12 @@ namespace System.Reflection.Metadata.ReadyToRun
             return new NativeParser(_imageReader, (uint)absoluteStart, _endOffset);
         }
 
+        internal uint GetEndOffset()
+        {
+            GetParserForBucket(_bucketMask, out uint endOffset);
+            return endOffset;
+        }
+
         private NativeParser GetEntryParser(ref NativeParser parser, uint bucketEndOffset)
         {
             NativeParser entryParser = parser.GetParserFromRelativeOffset();

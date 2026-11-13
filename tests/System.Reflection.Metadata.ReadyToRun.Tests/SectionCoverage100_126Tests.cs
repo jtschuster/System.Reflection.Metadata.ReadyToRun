@@ -758,7 +758,7 @@ public sealed class SectionCoverage100_126Tests
     public void NewTypedSectionReaders_RejectUnknownFutureMajorVersion()
     {
         byte[] image = WebcilImageBuilder.BuildRawWebcil(
-            25,
+            35,
             0,
             [new WebcilImageBuilder.R2RSectionSpec(ReadyToRunSectionType.ManifestAssemblyMvids, Array.Empty<byte>())]);
         using ReadyToRunReader reader = CreateReader(image);

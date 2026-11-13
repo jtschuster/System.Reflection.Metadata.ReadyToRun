@@ -25,6 +25,7 @@ public sealed class ReadyToRunCompatibilityTests
         { 10, 1 },
         { 16, 0 },
         { 24, 0 },
+        { 34, 0 },
     };
 
     public static TheoryData<ushort, ushort> TransitionVersions => new()
@@ -68,6 +69,22 @@ public sealed class ReadyToRunCompatibilityTests
         { 21, 0 },
         { 22, 0 },
         { 23, 0 },
+        { 25, 0 },
+        { 26, 0 },
+        { 26, 1 },
+        { 27, 0 },
+        { 27, 1 },
+        { 28, 0 },
+        { 29, 0 },
+        { 29, 1 },
+        { 29, 2 },
+        { 29, 3 },
+        { 30, 0 },
+        { 31, 0 },
+        { 31, 1 },
+        { 32, 0 },
+        { 33, 0 },
+        { 33, 1 },
     };
 
     [Theory]
@@ -116,7 +133,7 @@ public sealed class ReadyToRunCompatibilityTests
     public void UnknownMajorVersionPreservesOnlyRawDataInTolerantMode()
     {
         byte[] content = { 0x41, 0x42 };
-        byte[] image = BuildImage(25, 0, ReadyToRunSectionType.CompilerIdentifier, content);
+        byte[] image = BuildImage(35, 0, ReadyToRunSectionType.CompilerIdentifier, content);
         using ReadyToRunReader reader = CreateReader(image);
 
         ReadyToRunSection section = Assert.Single(reader.GetSections());
@@ -128,7 +145,7 @@ public sealed class ReadyToRunCompatibilityTests
     [Fact]
     public void UnknownMajorVersionIsRejectedInStrictMode()
     {
-        byte[] image = BuildImage(25, 0);
+        byte[] image = BuildImage(35, 0);
         using ReadyToRunReader reader = CreateReader(image, ReadyToRunValidationMode.Strict);
 
         Assert.Throws<NotSupportedException>(() => reader.ReadyToRunHeader);

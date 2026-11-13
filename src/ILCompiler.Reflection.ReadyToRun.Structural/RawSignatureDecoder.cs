@@ -382,13 +382,28 @@ internal static class RawSignatureDecoder
                 case ReadyToRunFixupKind.ThreadStaticBaseGC:
                 case ReadyToRunFixupKind.FieldBaseOffset:
                 case ReadyToRunFixupKind.TypeDictionary:
-                case ReadyToRunFixupKind.DeclaringTypeHandle:
                     foreach (var p in EmitType())
                         yield return p;
                     yield break;
 
+                case ReadyToRunFixupKind.DeclaringTypeHandle:
+                    if (_options.MajorVersion >= 27)
+                    {
+                        foreach (var p in EmitMethod())
+                            yield return p;
+                    }
+                    else
+                    {
+                        foreach (var p in EmitType())
+                            yield return p;
+                        foreach (var p in EmitType())
+                            yield return p;
+                    }
+                    yield break;
+
                 case ReadyToRunFixupKind.MethodHandle:
                 case ReadyToRunFixupKind.MethodEntry:
+                case ReadyToRunFixupKind.MethodEntry_ReadyToRun:
                 case ReadyToRunFixupKind.VirtualEntry:
                 case ReadyToRunFixupKind.MethodDictionary:
                 case ReadyToRunFixupKind.IndirectPInvokeTarget:
@@ -443,6 +458,11 @@ internal static class RawSignatureDecoder
 
                 case ReadyToRunFixupKind.ResumptionStubEntryPoint:
                     yield return new SignaturePart(SignaturePartKind.ResumptionStubRva, _reader.ReadInt32(ref _offset));
+                    yield break;
+
+                case ReadyToRunFixupKind.StoreMultiCallableAddrOfCode:
+                    yield return new SignaturePart(SignaturePartKind.StoreMultiCallableTargetRva, _reader.ReadUInt32(ref _offset));
+                    yield return new SignaturePart(SignaturePartKind.StoreMultiCallableLocationRva, _reader.ReadUInt32(ref _offset));
                     yield break;
 
                 case ReadyToRunFixupKind.InjectStringThunks:

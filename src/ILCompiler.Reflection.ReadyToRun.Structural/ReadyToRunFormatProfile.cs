@@ -12,8 +12,6 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </summary>
     internal sealed class ReadyToRunFormatProfile
     {
-        private const uint AllKnownHeaderFlags = 0x00000FFF;
-
         private ReadyToRunFormatProfile(ushort majorVersion, ushort minorVersion)
         {
             MajorVersion = majorVersion;
@@ -90,6 +88,8 @@ namespace System.Reflection.Metadata.ReadyToRun
                 ReadyToRunFixupKind.InjectStringThunks => IsAtLeast(18, 6),
                 ReadyToRunFixupKind.ContinuationLayout or
                     ReadyToRunFixupKind.ResumptionStubEntryPoint => IsAtLeast(24, 0),
+                ReadyToRunFixupKind.StoreMultiCallableAddrOfCode => IsAtLeast(26, 1),
+                ReadyToRunFixupKind.MethodEntry_ReadyToRun => IsAtLeast(31, 0),
                 _ => true,
             };
         }
@@ -113,6 +113,9 @@ namespace System.Reflection.Metadata.ReadyToRun
                     ReadyToRunHelper.ThrowPlatformNotSupported or
                     ReadyToRunHelper.ThrowNotImplemented => IsAtLeast(18, 4),
                 ReadyToRunHelper.R2RToInterpreter => IsAtLeast(18, 7),
+                ReadyToRunHelper.ResumeAfterCatch => IsAtLeast(29, 1),
+                ReadyToRunHelper.BulkWriteBarrierSmall => IsAtLeast(29, 3),
+                ReadyToRunHelper.WasmProfSamplepoint => IsAtLeast(33, 1),
                 ReadyToRunHelper.ByRefWriteBarrier => !IsAtLeast(19, 0),
                 _ => true,
             };
@@ -129,7 +132,12 @@ namespace System.Reflection.Metadata.ReadyToRun
                     $"ReadyToRun format version {MajorVersion}.{MinorVersion} is not a known CoreCLR format revision.");
             }
 
-            uint unknownFlags = flags & ~AllKnownHeaderFlags;
+            uint knownFlags = 0x00000FFF;
+            if (IsAtLeast(29, 2))
+                knownFlags |= 0x00001000;
+            if (IsAtLeast(31, 1))
+                knownFlags |= 0x00002000;
+            uint unknownFlags = flags & ~knownFlags;
             if (unknownFlags != 0)
             {
                 throw new NotSupportedException(
@@ -147,8 +155,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
         }
 
-        public static bool IsKnownCoreClrSectionType(int sectionType)
-            => sectionType >= 100 && sectionType <= 126 && sectionType != 107;
+        public bool IsKnownCoreClrSectionType(int sectionType)
+            => sectionType >= 100 && sectionType <= 127 && sectionType != 107
+                && (sectionType != 127 || IsAtLeast(29, 0));
 
         private static bool IsKnownVersion(ushort majorVersion, ushort minorVersion)
         {
@@ -170,6 +179,15 @@ namespace System.Reflection.Metadata.ReadyToRun
                 17 => minorVersion <= 1,
                 18 => minorVersion <= 7,
                 >= 19 and <= 24 => minorVersion == 0,
+                25 => minorVersion == 0,
+                26 or 27 => minorVersion <= 1,
+                28 => minorVersion == 0,
+                29 => minorVersion <= 3,
+                30 => minorVersion == 0,
+                31 => minorVersion <= 1,
+                32 => minorVersion == 0,
+                33 => minorVersion <= 1,
+                34 => minorVersion == 0,
                 _ => false,
             };
         }

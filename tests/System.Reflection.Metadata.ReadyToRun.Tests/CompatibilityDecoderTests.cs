@@ -227,13 +227,13 @@ public sealed class CompatibilityDecoderTests
     {
         using ReadyToRunReader debugReader = CreateReader(
             Machine.Amd64,
-            CreateDebugInfoImage(majorVersion: 25, minorVersion: 0, [0x00]));
+            CreateDebugInfoImage(majorVersion: 35, minorVersion: 0, [0x00]));
         Assert.Throws<NotSupportedException>(
             () => debugReader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset));
 
         using ReadyToRunReader gcReader = CreateReader(
             Machine.Amd64,
-            CreateAmd64GcInfoImage(majorVersion: 25, minorVersion: 0, [0x00]));
+            CreateAmd64GcInfoImage(majorVersion: 35, minorVersion: 0, [0x00]));
         Assert.Throws<NotSupportedException>(
             () => gcReader.GetGcInfo((UnwindInfoRva)(uint)UnwindInfoOffset));
     }

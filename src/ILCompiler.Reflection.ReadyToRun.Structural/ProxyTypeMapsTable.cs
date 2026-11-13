@@ -39,7 +39,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         public ImportFixupReference GroupRef { get; }
 
         /// <summary>
-        /// 0 = invalid/throwing (inner hashtable absent); 1 = valid (inner hashtable present).
+        /// 0 = runtime fallback; 1 = fixups only; 2 = fixups and named entries (R2R 28+).
         /// </summary>
         public uint State { get; }
 
@@ -87,7 +87,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
-        private Dictionary<ProxyTypeMapInnerHandle, (int StartOffset, int EndOffset)> _proxyTypeMapRanges;
+        private Dictionary<ProxyTypeMapInnerHandle, (int StartOffset, int EndOffset, uint State)> _proxyTypeMapRanges;
 
         /// <summary>
         /// Parses the ProxyTypeMaps section as an outer NativeHashtable of type-map groups.
@@ -112,14 +112,15 @@ namespace System.Reflection.Metadata.ReadyToRun
                 uint groupSectionIdx = curParser.GetUnsigned();
                 uint groupFixupIdx = curParser.GetUnsigned();
                 uint state = curParser.GetUnsigned();
+                ValidateTypeMapState(state);
 
                 var groupRef = new ImportFixupReference(groupSectionIdx, groupFixupIdx);
                 ProxyTypeMapInnerHandle innerHandle = default;
 
-                if (state != 0)
+                if (state is 1 or 2)
                 {
                     innerHandle = (ProxyTypeMapInnerHandle)curParser.Offset;
-                    RegisterProxyTypeMapRange(innerHandle, sectionOffset, sectionEndOffset);
+                    RegisterProxyTypeMapRange(innerHandle, sectionOffset, sectionEndOffset, state);
                 }
 
                 groups.Add(new ProxyTypeMapGroup(groupRef, state, innerHandle));
@@ -141,7 +142,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (handle == default)
                 return Array.Empty<ProxyTypeMapEntry>();
 
-            (int _, int sectionEndOffset) = GetProxyTypeMapRange(handle);
+            (int _, int sectionEndOffset, uint _) = GetProxyTypeMapRange(handle);
             NativeParser innerParser = new NativeParser(_nativeReader, (uint)handle);
             NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = innerHashtable.EnumerateAllEntries();
@@ -169,20 +170,31 @@ namespace System.Reflection.Metadata.ReadyToRun
             return entries;
         }
 
+        /// <summary>Reads serialized source and proxy names appended to a version 28 or later type map.</summary>
+        public IReadOnlyList<TypeMapNamedEntry> GetProxyTypeMapNamedEntries(ProxyTypeMapInnerHandle handle)
+        {
+            EnsureSemanticDecodingSupported(nameof(GetProxyTypeMapNamedEntries));
+            if (handle == default)
+                return Array.Empty<TypeMapNamedEntry>();
+            var range = GetProxyTypeMapRange(handle);
+            return range.State == 2 ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset) : Array.Empty<TypeMapNamedEntry>();
+        }
+
         private void RegisterProxyTypeMapRange(
             ProxyTypeMapInnerHandle handle,
             int sectionStartOffset,
-            int sectionEndOffset)
+            int sectionEndOffset,
+            uint state)
         {
             uint rawOffset = (uint)handle;
             if (rawOffset < sectionStartOffset || rawOffset >= sectionEndOffset)
                 throw new BadImageFormatException("Proxy type-map inner table starts outside its containing section.");
 
-            _proxyTypeMapRanges ??= new Dictionary<ProxyTypeMapInnerHandle, (int, int)>();
-            _proxyTypeMapRanges[handle] = (sectionStartOffset, sectionEndOffset);
+            _proxyTypeMapRanges ??= new Dictionary<ProxyTypeMapInnerHandle, (int, int, uint)>();
+            _proxyTypeMapRanges[handle] = (sectionStartOffset, sectionEndOffset, state);
         }
 
-        private (int StartOffset, int EndOffset) GetProxyTypeMapRange(ProxyTypeMapInnerHandle handle)
+        private (int StartOffset, int EndOffset, uint State) GetProxyTypeMapRange(ProxyTypeMapInnerHandle handle)
         {
             if (_proxyTypeMapRanges is null
                 || !_proxyTypeMapRanges.TryGetValue(handle, out var range))

@@ -39,7 +39,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         public ImportFixupReference GroupRef { get; }
 
         /// <summary>
-        /// 0 = invalid/throwing (inner hashtable absent); 1 = valid (inner hashtable present).
+        /// 0 = runtime fallback; 1 = fixups only; 2 = fixups and named entries (R2R 28+).
         /// </summary>
         public uint State { get; }
 
@@ -91,7 +91,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         private static readonly UTF8Encoding s_strictUtf8 = new(
             encoderShouldEmitUTF8Identifier: false,
             throwOnInvalidBytes: true);
-        private Dictionary<ExternalTypeMapInnerHandle, (int StartOffset, int EndOffset)> _externalTypeMapRanges;
+        private Dictionary<ExternalTypeMapInnerHandle, (int StartOffset, int EndOffset, uint State)> _externalTypeMapRanges;
 
         /// <summary>
         /// Parses the ExternalTypeMaps section as an outer NativeHashtable of type-map groups.
@@ -116,14 +116,15 @@ namespace System.Reflection.Metadata.ReadyToRun
                 uint groupSectionIdx = curParser.GetUnsigned();
                 uint groupFixupIdx = curParser.GetUnsigned();
                 uint state = curParser.GetUnsigned();
+                ValidateTypeMapState(state);
 
                 var groupRef = new ImportFixupReference(groupSectionIdx, groupFixupIdx);
                 ExternalTypeMapInnerHandle innerHandle = default;
 
-                if (state != 0)
+                if (state is 1 or 2)
                 {
                     innerHandle = (ExternalTypeMapInnerHandle)curParser.Offset;
-                    RegisterExternalTypeMapRange(innerHandle, sectionOffset, sectionEndOffset);
+                    RegisterExternalTypeMapRange(innerHandle, sectionOffset, sectionEndOffset, state);
                 }
 
                 groups.Add(new ExternalTypeMapGroup(groupRef, state, innerHandle));
@@ -145,7 +146,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (handle == default)
                 return Array.Empty<ExternalTypeMapEntry>();
 
-            (int _, int sectionEndOffset) = GetExternalTypeMapRange(handle);
+            (int _, int sectionEndOffset, uint _) = GetExternalTypeMapRange(handle);
             NativeParser innerParser = new NativeParser(_nativeReader, (uint)handle);
             NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = innerHashtable.EnumerateAllEntries();
@@ -184,20 +185,31 @@ namespace System.Reflection.Metadata.ReadyToRun
             return entries;
         }
 
+        /// <summary>Reads serialized name pairs appended to a version 28 or later type map.</summary>
+        public IReadOnlyList<TypeMapNamedEntry> GetExternalTypeMapNamedEntries(ExternalTypeMapInnerHandle handle)
+        {
+            EnsureSemanticDecodingSupported(nameof(GetExternalTypeMapNamedEntries));
+            if (handle == default)
+                return Array.Empty<TypeMapNamedEntry>();
+            var range = GetExternalTypeMapRange(handle);
+            return range.State == 2 ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset) : Array.Empty<TypeMapNamedEntry>();
+        }
+
         private void RegisterExternalTypeMapRange(
             ExternalTypeMapInnerHandle handle,
             int sectionStartOffset,
-            int sectionEndOffset)
+            int sectionEndOffset,
+            uint state)
         {
             uint rawOffset = (uint)handle;
             if (rawOffset < sectionStartOffset || rawOffset >= sectionEndOffset)
                 throw new BadImageFormatException("External type-map inner table starts outside its containing section.");
 
-            _externalTypeMapRanges ??= new Dictionary<ExternalTypeMapInnerHandle, (int, int)>();
-            _externalTypeMapRanges[handle] = (sectionStartOffset, sectionEndOffset);
+            _externalTypeMapRanges ??= new Dictionary<ExternalTypeMapInnerHandle, (int, int, uint)>();
+            _externalTypeMapRanges[handle] = (sectionStartOffset, sectionEndOffset, state);
         }
 
-        private (int StartOffset, int EndOffset) GetExternalTypeMapRange(ExternalTypeMapInnerHandle handle)
+        private (int StartOffset, int EndOffset, uint State) GetExternalTypeMapRange(ExternalTypeMapInnerHandle handle)
         {
             if (_externalTypeMapRanges is null
                 || !_externalTypeMapRanges.TryGetValue(handle, out var range))

@@ -50,7 +50,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Mirrors <c>READYTORUN_MAJOR_VERSION</c> in <c>src/coreclr/inc/readytorun.h</c>.
         /// Bump in lockstep with that constant when adding support for a newer format.
         /// </summary>
-        public const ushort MAXIMUM_SUPPORTED_MAJOR_VERSION = 24;
+        public const ushort MAXIMUM_SUPPORTED_MAJOR_VERSION = 34;
         public const ushort MAXIMUM_SUPPORTED_MINOR_VERSION = 0;
 
         public uint Signature { get; }
@@ -177,7 +177,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int type = _nativeReader.ReadInt32(ref curOffset);
                 var sectionType = (ReadyToRunSectionType)type;
                 if (ValidationMode == ReadyToRunValidationMode.Strict &&
-                    !ReadyToRunFormatProfile.IsKnownCoreClrSectionType(type))
+                    !profile.IsKnownCoreClrSectionType(type))
                 {
                     throw new NotSupportedException($"ReadyToRun section type {type} is not a known CoreCLR section.");
                 }

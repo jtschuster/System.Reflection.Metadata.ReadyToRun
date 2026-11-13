@@ -315,7 +315,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         public uint ReadCompressedData(ref int start)
         {
             int off = start;
-            uint data = ReadUInt32(ref off);
+            uint data = ReadByte(ref off);
             if ((data & 0x80) == 0x00)
             {
                 start++;

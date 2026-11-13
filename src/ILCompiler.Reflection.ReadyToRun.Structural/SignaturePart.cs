@@ -106,6 +106,10 @@ public enum SignaturePartKind
     ILBodyTypeCount,
     /// <summary>4-byte little-endian RVA for ResumptionStubEntryPoint fixup.</summary>
     ResumptionStubRva,
+    /// <summary>Target code RVA for a StoreMultiCallableAddrOfCode fixup.</summary>
+    StoreMultiCallableTargetRva,
+    /// <summary>Destination RVA for a StoreMultiCallableAddrOfCode fixup.</summary>
+    StoreMultiCallableLocationRva,
 
     // ── Type layout fixup payload ────────────────────────────────────────
     /// <summary>Type-layout flags (compressed uint).</summary>

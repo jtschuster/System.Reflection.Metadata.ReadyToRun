@@ -101,6 +101,13 @@ namespace Internal.ReadyToRunConstants
         SveAes=88,
         SveSha3=89,
         SveSm4=90,
+        WasmBase=91,
+        PackedSimd=92,
+        Cssc=93,
+        Zicond=94,
+        Fp16=95,
+        SvePmull128=96,
+        RelaxedSimd=97,
 
     }
 }

@@ -16,7 +16,9 @@ public enum GCRefMapToken
     Interior = 2,
     MethodParam = 3,
     TypeParam = 4,
-    VaSigCookie = 5,
+    ThisRef = 5,
+    ThisByRef = 6,
+    VaSigCookie = 7,
 }
 
 /// <summary>
@@ -64,7 +66,7 @@ public sealed class GCRefMap
 /// <summary>
 /// A table of GC reference maps decoded from the auxiliary data of an import section.
 /// Contains one <see cref="GCRefMap"/> per slot in the owning import section.
-/// Obtained via <see cref="ReadyToRunReader.GetGCRefMapTable(AuxiliaryDataTableRva, int, Machine)"/>.
+/// Obtained via <see cref="ReadyToRunReader.GetGCRefMapTable(AuxiliaryDataTableRva, int)"/>.
 /// </summary>
 /// <remarks>
 /// Crossgen2 emitter: <c>GCRefMapNode (one per ImportSectionNode that requests a GC ref map)</c>.
@@ -142,7 +144,7 @@ public partial class ReadyToRunReader
                 remaining--;
             }
 
-            entries[i] = DecodeGCRefMap(entryOffset);
+            entries[i] = DecodeGCRefMap(entryOffset, out _);
         }
 
         var table = new GCRefMapTable(entries);
@@ -152,7 +154,7 @@ public partial class ReadyToRunReader
 
     private const int GCRefMapLookupStride = 1024;
 
-    private GCRefMap DecodeGCRefMap(int offset)
+    private GCRefMap DecodeGCRefMap(int offset, out int endOffset)
     {
         var decoder = new GCRefMapBitReader(_nativeReader, offset);
 
@@ -171,20 +173,23 @@ public partial class ReadyToRunReader
         while (!decoder.AtEnd())
         {
             int currentPos = pos;
-            GCRefMapToken token = ReadToken(ref pos, decoder);
+            GCRefMapToken token = ReadToken(ref pos, ref decoder);
+            if (!FormatProfile.IsAtLeast(33, 0) && token == GCRefMapToken.ThisRef)
+                token = GCRefMapToken.VaSigCookie;
             if (token != GCRefMapToken.Skip)
             {
                 entries.Add(new GCRefMapEntry(currentPos, token));
             }
         }
 
+        endOffset = decoder.Offset;
         if (stackPop != GCRefMap.InvalidStackPop || entries.Count > 0)
             return new GCRefMap(stackPop, entries.ToArray());
 
         return null;
     }
 
-    private static GCRefMapToken ReadToken(ref int pos, GCRefMapBitReader decoder)
+    private static GCRefMapToken ReadToken(ref int pos, ref GCRefMapBitReader decoder)
     {
         int val = decoder.GetTwoBit();
         if (val == 3)
@@ -213,6 +218,7 @@ public partial class ReadyToRunReader
         private readonly NativeReader _reader;
         private int _offset;
         private int _pendingByte;
+        public int Offset => _offset;
 
         public GCRefMapBitReader(NativeReader reader, int offset)
         {

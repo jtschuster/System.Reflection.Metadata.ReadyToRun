@@ -74,7 +74,8 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
         /// <summary>
         /// Target code pointer for the start of the runtime function.
-        /// On ARM Thumb2 this includes the Thumb bit and is not a plain RVA.
+        /// On ARM Thumb2 this includes the Thumb bit and is not a plain RVA. On WebAssembly
+        /// this encodes a virtual instruction-pointer index with a funclet flag in bit 31.
         /// </summary>
         public PCode StartPCode { get; }
 
