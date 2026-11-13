@@ -59,7 +59,7 @@ public sealed class GCRefMap
     internal GCRefMap(uint stackPop, IReadOnlyList<GCRefMapEntry> entries)
     {
         StackPop = stackPop;
-        Entries = ReadyToRunCollection.Snapshot(entries);
+        Entries = entries;
     }
 }
 
@@ -78,7 +78,7 @@ public sealed class GCRefMapTable
 
     internal GCRefMapTable(IReadOnlyList<GCRefMap> entries)
     {
-        Entries = ReadyToRunCollection.Snapshot(entries);
+        Entries = entries;
     }
 }
 

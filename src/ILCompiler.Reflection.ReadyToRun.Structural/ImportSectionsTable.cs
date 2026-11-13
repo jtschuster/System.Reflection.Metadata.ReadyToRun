@@ -22,7 +22,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ImportSectionsTableSection(List<ImportSectionEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

@@ -19,7 +19,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ExceptionInfoTable(List<ExceptionInfoEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

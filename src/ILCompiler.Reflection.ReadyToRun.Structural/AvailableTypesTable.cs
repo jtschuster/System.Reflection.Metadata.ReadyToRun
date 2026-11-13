@@ -22,7 +22,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal AvailableTypesTable(List<AvailableTypeEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

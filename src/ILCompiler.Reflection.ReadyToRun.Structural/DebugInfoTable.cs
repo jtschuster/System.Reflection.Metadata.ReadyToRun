@@ -19,7 +19,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal DebugInfoTable(List<DebugInfoEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

@@ -186,7 +186,7 @@ public sealed class ApiConventionTests
     }
 
     [Fact]
-    public void TableCollections_AreSnapshotsAndCannotBeMutated()
+    public void ListBackedTable_UsesReaderOwnedCollection()
     {
         var source = new List<WasmAsyncResumeInfoChunk>
         {
@@ -194,11 +194,32 @@ public sealed class ApiConventionTests
         };
         var table = new WasmAsyncResumeInfoTable(source);
 
-        source.Add(new WasmAsyncResumeInfoChunk(3, 4, 8));
+        Assert.Same(source, table.Chunks);
+    }
 
-        Assert.Single(table.Chunks);
-        Assert.Throws<NotSupportedException>(() =>
-            ((IList<WasmAsyncResumeInfoChunk>)table.Chunks).Add(new WasmAsyncResumeInfoChunk(5, 6, 8)));
+    [Fact]
+    public void ArrayBackedTable_UsesReaderOwnedCollection()
+    {
+        var source = new[] { (SignatureRva)123u };
+        var table = new SignatureTable(source);
+
+        Assert.Same(source, table.Entries);
+    }
+
+    [Fact]
+    public void HeaderDirectories_UseReaderOwnedCollection()
+    {
+        var sections = new List<ReadyToRunSection>();
+        var coreHeader = new ReadyToRunCoreHeader(0, sections);
+        var header = new ReadyToRunHeader(
+            ReadyToRunHeader.READYTORUN_SIGNATURE,
+            ReadyToRunHeader.MAXIMUM_SUPPORTED_MAJOR_VERSION,
+            ReadyToRunHeader.MAXIMUM_SUPPORTED_MINOR_VERSION,
+            0,
+            sections);
+
+        Assert.Same(sections, coreHeader.Sections);
+        Assert.Same(sections, header.Sections);
     }
 
     [Fact]
@@ -330,7 +351,7 @@ public sealed class ApiConventionTests
     }
 
     [Fact]
-    public void HeaderDirectoryModels_AreImmutableAndReaderOwned()
+    public void HeaderDirectoryModels_HaveGetOnlyPropertiesAndAreReaderOwned()
     {
         Type header = typeof(ReadyToRunHeader);
         Assert.Empty(header.GetConstructors(BindingFlags.Public | BindingFlags.Instance));

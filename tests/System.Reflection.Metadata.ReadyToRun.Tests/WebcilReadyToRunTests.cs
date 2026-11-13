@@ -58,6 +58,24 @@ namespace System.Reflection.Metadata.ReadyToRun.Tests
         }
 
         [Fact]
+        public void ReadOnlyMemoryConstructor_ReadsCallerMemoryWithoutCopying()
+        {
+            byte[] image = WebcilImageBuilder.BuildRawWebcil(R2RMajorVersion, R2RMinorVersion, SampleSections());
+            const int Padding = 3;
+            byte[] buffer = new byte[image.Length + Padding * 2];
+            image.CopyTo(buffer, Padding);
+
+            using var reader = new ReadyToRunReader(buffer.AsMemory(Padding, image.Length));
+            ReadyToRunSection section = FindSection(reader.GetSections(), ReadyToRunSectionType.CompilerIdentifier);
+            ImageOffset offset = reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+            Assert.Equal((byte)CompilerId[0], reader.ReadByte(offset));
+
+            buffer[Padding + (int)offset] = (byte)'Z';
+
+            Assert.Equal((byte)'Z', reader.ReadByte(offset));
+        }
+
+        [Fact]
         public void RawWebcil_ReportsWasmMachineAndPointerSize()
         {
             byte[] image = WebcilImageBuilder.BuildRawWebcil(R2RMajorVersion, R2RMinorVersion, SampleSections());

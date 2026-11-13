@@ -256,7 +256,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 curTableIndex += tableDelta;
             }
 
-            return ReadyToRunCollection.Snapshot(fixupCells);
+            return fixupCells;
         }
 
         private void RegisterPayloadRange(int payloadOffset, int startOffset, int endOffset)

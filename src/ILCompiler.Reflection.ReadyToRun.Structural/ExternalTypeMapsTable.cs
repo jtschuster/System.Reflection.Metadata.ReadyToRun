@@ -24,7 +24,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ExternalTypeMapsTable(IReadOnlyList<ExternalTypeMapGroup> groups)
         {
-            Groups = ReadyToRunCollection.Snapshot(groups);
+            Groups = groups;
         }
     }
 
@@ -182,7 +182,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 curParser = enumerator.GetNext();
             }
 
-            return ReadyToRunCollection.Snapshot(entries);
+            return entries;
         }
 
         /// <summary>Reads serialized name pairs appended to a version 28 or later type map.</summary>
@@ -193,7 +193,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 return Array.Empty<TypeMapNamedEntry>();
             var range = GetExternalTypeMapRange(handle);
             return range.State == 2
-                ? ReadyToRunCollection.Snapshot(ReadTypeMapNamedEntries((uint)handle, range.EndOffset))
+                ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset)
                 : Array.Empty<TypeMapNamedEntry>();
         }
 

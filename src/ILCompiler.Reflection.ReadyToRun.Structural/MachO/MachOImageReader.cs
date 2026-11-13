@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Buffers;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
@@ -15,22 +16,36 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
     /// </summary>
     internal class MachOImageReader : IPlatformBinaryReader
     {
-        private readonly byte[] _image;
+        private readonly ReadOnlyMemory<byte> _image;
+        private readonly unsafe byte* _imagePointer;
         private readonly MachHeader _header;
         private int? _rtrHeaderRva;
-        private readonly GCHandle _pinnedArray;
+        private MemoryHandle _pin;
 
         public Machine Machine { get; }
 
-        public MachOImageReader(byte[] image)
+        /// <summary>
+        /// Creates a reader over <paramref name="image"/> without copying it. The memory must not be
+        /// modified or released until this reader is disposed.
+        /// </summary>
+        public unsafe MachOImageReader(ReadOnlyMemory<byte> image)
         {
             _image = image;
-            _pinnedArray = GCHandle.Alloc(_image, GCHandleType.Pinned);
+            _pin = image.Pin();
+            _imagePointer = (byte*)_pin.Pointer;
 
-            // Read the MachO header
-            Read(0, out _header);
-            if (!_header.Is64Bit)
-                throw new BadImageFormatException("Only 64-bit Mach-O files are supported");
+            try
+            {
+                // Read the MachO header
+                Read(0, out _header);
+                if (!_header.Is64Bit)
+                    throw new BadImageFormatException("Only 64-bit Mach-O files are supported");
+            }
+            catch
+            {
+                _pin.Dispose();
+                throw;
+            }
 
             // Determine machine type from CPU type
             Machine = GetMachineType(_header.CpuType);
@@ -49,10 +64,7 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
 
         private void Dispose(bool _)
         {
-            if (_pinnedArray.IsAllocated)
-            {
-                _pinnedArray.Free();
-            }
+            _pin.Dispose();
         }
 
         public ImageOffset GetOffset(ImageRVA rva)
@@ -100,7 +112,10 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
 
         public unsafe MetadataReader GetManifestAssemblyMetadata(ImageOffset offset, int size)
         {
-            return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[(int)offset]), size);
+            if (size <= 0 || (uint)offset > int.MaxValue || (long)(uint)offset + size > _image.Length)
+                throw new BadImageFormatException("Metadata range is outside the image");
+
+            return new MetadataReader(_imagePointer + (int)offset, size);
         }
 
         /// <summary>
@@ -281,14 +296,14 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
             long end = Math.Min(offset + maxLength, _image.Length);
             for (length = 0; offset + length < end; length++)
             {
-                if (_image[offset + length] == 0)
+                if (_image.Span[(int)(offset + length)] == 0)
                 {
                     break;
                 }
             }
 
             System.Diagnostics.Debug.Assert(offset <= int.MaxValue);
-            return System.Text.Encoding.UTF8.GetString(_image, (int)offset, length);
+            return System.Text.Encoding.UTF8.GetString(_image.Span.Slice((int)offset, length));
         }
 
         public void Read<T>(long offset, out T result) where T : unmanaged
@@ -300,10 +315,7 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
                     throw new ArgumentOutOfRangeException(nameof(offset));
                 }
 
-                fixed (byte* ptr = &_image[offset])
-                {
-                    result = Unsafe.ReadUnaligned<T>(ptr);
-                }
+                result = Unsafe.ReadUnaligned<T>(_imagePointer + offset);
             }
         }
     }

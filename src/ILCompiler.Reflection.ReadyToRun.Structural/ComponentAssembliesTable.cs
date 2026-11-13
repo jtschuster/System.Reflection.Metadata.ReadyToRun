@@ -19,7 +19,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ComponentAssembliesTable(List<ComponentAssemblyEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

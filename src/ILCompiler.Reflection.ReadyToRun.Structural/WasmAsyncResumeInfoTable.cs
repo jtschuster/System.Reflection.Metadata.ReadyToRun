@@ -22,7 +22,7 @@ public sealed class WasmAsyncResumeInfoTable
     public IReadOnlyList<WasmAsyncResumeInfoChunk> Chunks { get; }
 
     internal WasmAsyncResumeInfoTable(IReadOnlyList<WasmAsyncResumeInfoChunk> chunks)
-        => Chunks = ReadyToRunCollection.Snapshot(chunks);
+        => Chunks = chunks;
 }
 
 public partial class ReadyToRunReader

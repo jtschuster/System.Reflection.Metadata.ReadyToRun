@@ -20,7 +20,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal HotColdMapTable(List<HotColdMapEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

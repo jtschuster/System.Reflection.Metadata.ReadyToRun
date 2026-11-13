@@ -17,7 +17,7 @@ public sealed class SignatureTable
 
     internal SignatureTable(IReadOnlyList<SignatureRva> entries)
     {
-        Entries = ReadyToRunCollection.Snapshot(entries);
+        Entries = entries;
     }
 }
 

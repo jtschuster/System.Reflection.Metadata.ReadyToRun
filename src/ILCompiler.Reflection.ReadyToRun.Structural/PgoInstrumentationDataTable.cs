@@ -22,7 +22,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal PgoInstrumentationDataTable(List<PgoEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

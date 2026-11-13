@@ -24,7 +24,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal TypeMapAssemblyTargetsTable(IReadOnlyList<TypeMapAssemblyTargetsEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 
@@ -48,7 +48,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         internal TypeMapAssemblyTargetsEntry(ImportFixupReference groupRef, IReadOnlyList<ImportFixupReference> moduleRefs)
         {
             GroupRef = groupRef;
-            ModuleRefs = ReadyToRunCollection.Snapshot(moduleRefs);
+            ModuleRefs = moduleRefs;
         }
     }
 

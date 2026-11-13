@@ -46,8 +46,8 @@ public sealed class DebugInfo
         ImmutableArray<byte> richDebugInfo,
         ImmutableArray<byte> asyncInfo)
     {
-        Bounds = ReadyToRunCollection.Snapshot(bounds);
-        Variables = ReadyToRunCollection.Snapshot(variables);
+        Bounds = bounds;
+        Variables = variables;
         UninstrumentedBounds = uninstrumentedBounds;
         PatchpointInfo = patchpointInfo;
         RichDebugInfo = richDebugInfo;

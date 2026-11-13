@@ -24,7 +24,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ProfileDataInfoTable(IReadOnlyList<ProfileDataInfoEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

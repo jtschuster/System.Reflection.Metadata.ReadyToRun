@@ -20,7 +20,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal RuntimeFunctionsTable(List<RuntimeFunctionEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 

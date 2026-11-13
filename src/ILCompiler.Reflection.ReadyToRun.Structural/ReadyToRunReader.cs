@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -28,6 +29,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         private readonly NativeReader _nativeReader;
         private readonly string _filename;
         private readonly ReadyToRunReaderOptions _options;
+        private readonly PinnedImage _pinnedImage;
 
         // Lazy-init backing fields
         private ReadyToRunHeader _header;
@@ -47,8 +49,15 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
 
         /// <summary>
-        /// Creates a reader over a snapshot of a PE, Webcil, or Mach-O image.
+        /// Creates a reader over a PE, Webcil, or Mach-O image.
         /// </summary>
+        /// <param name="image">The image bytes.</param>
+        /// <param name="filename">Optional name used in diagnostics.</param>
+        /// <param name="options">Optional reader options.</param>
+        /// <remarks>
+        /// The reader reads <paramref name="image"/> directly and does not copy it. The caller must not
+        /// modify the memory while the reader is in use, and must keep it valid until the reader is disposed.
+        /// </remarks>
         public ReadyToRunReader(
             ReadOnlyMemory<byte> image,
             string filename = null,
@@ -58,45 +67,87 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
 
         private ReadyToRunReader(
-            (IPlatformBinaryReader PlatformReader, NativeReader ImageReader) readers,
+            (IPlatformBinaryReader PlatformReader, NativeReader ImageReader, PinnedImage Pin) readers,
             string filename,
             ReadyToRunReaderOptions options)
             : this(readers.PlatformReader, readers.ImageReader, filename, options)
         {
+            _pinnedImage = readers.Pin;
         }
 
-        private static (IPlatformBinaryReader PlatformReader, NativeReader ImageReader) CreateImageReaders(
+        private static unsafe (IPlatformBinaryReader PlatformReader, NativeReader ImageReader, PinnedImage Pin) CreateImageReaders(
             ReadOnlyMemory<byte> image)
         {
-            byte[] snapshot = image.ToArray();
-            IPlatformBinaryReader platformReader;
-            bool isMachO = snapshot.Length >= 4
-                && snapshot[0] == 0xCF
-                && snapshot[1] == 0xFA
-                && snapshot[2] == 0xED
-                && snapshot[3] == 0xFE;
-            if (isMachO)
-            {
-                platformReader = new MachO.MachOImageReader(snapshot);
-            }
-            else if (Webcil.WebcilImageReader.IsWebcilImage(snapshot))
-            {
-                platformReader = new Webcil.WebcilImageReader(snapshot);
-            }
-            else
-            {
-                var peReader = new PEReader(ImmutableArray.CreateRange(snapshot));
-                platformReader = new PEImageReader(peReader);
-            }
+            ReadOnlySpan<byte> span = image.Span;
+            bool isMachO = span.Length >= 4
+                && span[0] == 0xCF
+                && span[1] == 0xFA
+                && span[2] == 0xED
+                && span[3] == 0xFE;
 
-            var imageReader = new NativeReader(new MemoryStream(snapshot, writable: false), leaveOpen: false);
-            return (platformReader, imageReader);
+            var pin = new PinnedImage(image);
+            IPlatformBinaryReader platformReader = null;
+            try
+            {
+                if (isMachO)
+                {
+                    platformReader = new MachO.MachOImageReader(image);
+                }
+                else if (Webcil.WebcilImageReader.IsWebcilImage(span))
+                {
+                    platformReader = new Webcil.WebcilImageReader(image);
+                }
+                else
+                {
+                    PEReader peReader = pin.Pointer is null
+                        ? new PEReader(ImmutableArray<byte>.Empty)
+                        : new PEReader(pin.Pointer, image.Length);
+                    platformReader = new PEImageReader(peReader);
+                }
+
+                Stream stream = pin.Pointer is null
+                    ? new MemoryStream(Array.Empty<byte>(), writable: false)
+                    : new UnmanagedMemoryStream(pin.Pointer, image.Length);
+                var imageReader = new NativeReader(stream, leaveOpen: false);
+                return (platformReader, imageReader, pin);
+            }
+            catch
+            {
+                platformReader?.Dispose();
+                pin.Dispose();
+                throw;
+            }
         }
 
         public void Dispose()
         {
             _nativeReader.Dispose();
             _platformBinaryReader.Dispose();
+            _pinnedImage?.Dispose();
+        }
+
+        /// <summary>
+        /// Keeps caller-provided image memory pinned for readers that need a stable pointer.
+        /// </summary>
+        private sealed unsafe class PinnedImage : IDisposable
+        {
+            private MemoryHandle _handle;
+
+            public PinnedImage(ReadOnlyMemory<byte> image)
+            {
+                _handle = image.Pin();
+                Pointer = (byte*)_handle.Pointer;
+            }
+
+            ~PinnedImage() => _handle.Dispose();
+
+            public byte* Pointer { get; }
+
+            public void Dispose()
+            {
+                _handle.Dispose();
+                GC.SuppressFinalize(this);
+            }
         }
 
         NativeReader IR2RImageContext.ImageReader => _nativeReader;

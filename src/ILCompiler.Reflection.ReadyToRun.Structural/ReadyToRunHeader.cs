@@ -25,7 +25,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         internal ReadyToRunCoreHeader(uint flags, IReadOnlyList<ReadyToRunSection> sections)
         {
             Flags = flags;
-            Sections = new List<ReadyToRunSection>(sections).AsReadOnly();
+            Sections = sections;
         }
     }
 
@@ -84,7 +84,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             MajorVersion = majorVersion;
             MinorVersion = minorVersion;
             Flags = flags;
-            Sections = new List<ReadyToRunSection>(sections).AsReadOnly();
+            Sections = sections;
             FormatSupport = ReadyToRunFormatProfile.Create(majorVersion, minorVersion).Support;
         }
 

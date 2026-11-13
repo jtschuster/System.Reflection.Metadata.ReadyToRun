@@ -20,7 +20,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal InliningInfoTable(List<InliningInfoEntry> entries)
         {
-            Entries = ReadyToRunCollection.Snapshot(entries);
+            Entries = entries;
         }
     }
 
@@ -99,7 +99,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 baseRid = currentRid;
             }
 
-            return ReadyToRunCollection.Snapshot(inlinerRids);
+            return inlinerRids;
         }
     }
 

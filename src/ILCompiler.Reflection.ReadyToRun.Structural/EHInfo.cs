@@ -60,7 +60,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal EHInfo(IReadOnlyList<EHClause> clauses)
         {
-            EHClauses = ReadyToRunCollection.Snapshot(clauses);
+            EHClauses = clauses;
         }
     }
 }

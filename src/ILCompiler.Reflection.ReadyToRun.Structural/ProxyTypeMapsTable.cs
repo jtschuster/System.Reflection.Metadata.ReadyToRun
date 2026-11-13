@@ -24,7 +24,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ProxyTypeMapsTable(IReadOnlyList<ProxyTypeMapGroup> groups)
         {
-            Groups = ReadyToRunCollection.Snapshot(groups);
+            Groups = groups;
         }
     }
 
@@ -165,7 +165,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 curParser = enumerator.GetNext();
             }
 
-            return ReadyToRunCollection.Snapshot(entries);
+            return entries;
         }
 
         /// <summary>Reads serialized source and proxy names appended to a version 28 or later type map.</summary>
@@ -176,7 +176,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 return Array.Empty<TypeMapNamedEntry>();
             var range = GetProxyTypeMapRange(handle);
             return range.State == 2
-                ? ReadyToRunCollection.Snapshot(ReadTypeMapNamedEntries((uint)handle, range.EndOffset))
+                ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset)
                 : Array.Empty<TypeMapNamedEntry>();
         }
 
