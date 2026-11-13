@@ -22,7 +22,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal CrossModuleInlineInfoTable(List<CrossModuleInlineEntry> entries)
         {
-            Entries = entries;
+            Entries = ReadyToRunCollection.Snapshot(entries);
         }
     }
 
@@ -152,7 +152,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             IsCrossModuleInlinee = isCrossModuleInlinee;
             InlineeIndex = inlineeIndex;
             InlineeModuleIndex = inlineeModuleIndex;
-            Inliners = inliners;
+            Inliners = ReadyToRunCollection.Snapshot(inliners);
         }
     }
 

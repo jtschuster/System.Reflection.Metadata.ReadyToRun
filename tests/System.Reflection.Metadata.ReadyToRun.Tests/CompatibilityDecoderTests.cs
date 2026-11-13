@@ -485,11 +485,11 @@ public sealed class CompatibilityDecoderTests
     {
         public Machine Machine => machine;
 
-        public int GetOffset(int rva) => rva;
+        public ImageOffset GetOffset(ImageRVA rva) => (ImageOffset)rva.Value;
 
-        public bool TryGetReadyToRunHeader(out int rva, out bool isComposite)
+        public bool TryGetReadyToRunHeader(out ImageRVA rva, out bool isComposite)
         {
-            rva = 0;
+            rva = default;
             isComposite = false;
             return true;
         }
@@ -497,12 +497,12 @@ public sealed class CompatibilityDecoderTests
         public MetadataReader GetStandaloneAssemblyMetadata()
             => throw new NotSupportedException();
 
-        public MetadataReader GetManifestAssemblyMetadata(int offset, int size)
+        public MetadataReader GetManifestAssemblyMetadata(ImageOffset offset, int size)
             => throw new NotSupportedException();
 
-        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out ImageOffset fileOffset)
         {
-            fileOffset = 0;
+            fileOffset = default;
             return false;
         }
 

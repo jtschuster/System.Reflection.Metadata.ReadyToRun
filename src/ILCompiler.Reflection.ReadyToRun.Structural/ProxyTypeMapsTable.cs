@@ -24,7 +24,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ProxyTypeMapsTable(IReadOnlyList<ProxyTypeMapGroup> groups)
         {
-            Groups = groups;
+            Groups = ReadyToRunCollection.Snapshot(groups);
         }
     }
 
@@ -64,8 +64,6 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// Opaque handle to the inner NativeHashtable of a ProxyTypeMaps outer entry.
     /// The underlying value is the absolute file offset of the inner hashtable header.
     /// </summary>
-    public enum ProxyTypeMapInnerHandle : uint { }
-
     /// <summary>
     /// A single entry in a ProxyTypeMaps inner NativeHashtable.
     /// Maps a key type import/fixup reference to a value type import/fixup reference.
@@ -114,7 +112,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 uint state = curParser.GetUnsigned();
                 ValidateTypeMapState(state);
 
-                var groupRef = new ImportFixupReference(groupSectionIdx, groupFixupIdx);
+                var groupRef = new ImportFixupReference((ImportSectionIndex)groupSectionIdx, (ImportCellIndex)groupFixupIdx);
                 ProxyTypeMapInnerHandle innerHandle = default;
 
                 if (state is 1 or 2)
@@ -161,13 +159,13 @@ namespace System.Reflection.Metadata.ReadyToRun
                 uint valueFixupIdx = curParser.GetUnsigned();
 
                 entries.Add(new ProxyTypeMapEntry(
-                    new ImportFixupReference(keySectionIdx, keyFixupIdx),
-                    new ImportFixupReference(valueSectionIdx, valueFixupIdx)));
+                    new ImportFixupReference((ImportSectionIndex)keySectionIdx, (ImportCellIndex)keyFixupIdx),
+                    new ImportFixupReference((ImportSectionIndex)valueSectionIdx, (ImportCellIndex)valueFixupIdx)));
 
                 curParser = enumerator.GetNext();
             }
 
-            return entries;
+            return ReadyToRunCollection.Snapshot(entries);
         }
 
         /// <summary>Reads serialized source and proxy names appended to a version 28 or later type map.</summary>
@@ -177,7 +175,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (handle == default)
                 return Array.Empty<TypeMapNamedEntry>();
             var range = GetProxyTypeMapRange(handle);
-            return range.State == 2 ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset) : Array.Empty<TypeMapNamedEntry>();
+            return range.State == 2
+                ? ReadyToRunCollection.Snapshot(ReadTypeMapNamedEntries((uint)handle, range.EndOffset))
+                : Array.Empty<TypeMapNamedEntry>();
         }
 
         private void RegisterProxyTypeMapRange(

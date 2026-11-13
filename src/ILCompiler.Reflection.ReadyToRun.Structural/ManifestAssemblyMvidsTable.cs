@@ -23,7 +23,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ManifestAssemblyMvidsTable(IReadOnlyList<Guid> mvids)
         {
-            Mvids = mvids;
+            Mvids = ReadyToRunCollection.Snapshot(mvids);
         }
     }
 

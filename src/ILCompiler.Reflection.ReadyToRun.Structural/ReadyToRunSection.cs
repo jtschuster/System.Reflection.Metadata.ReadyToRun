@@ -37,13 +37,4 @@ namespace System.Reflection.Metadata.ReadyToRun
             => $"{Type}: RVA 0x{(uint)RelativeVirtualAddress:X8}, Size {Size}";
     }
 
-    /// <summary>Opaque handle representing an RVA pointing to the start of a ReadyToRun section.</summary>
-    public enum ImageRVA : uint {}
-
-    /// <summary>
-    /// Opaque handle representing the raw RVA of the DelayLoadMethodCallThunks section.
-    /// This names the value separately from <see cref="PCode"/> because the section header
-    /// entry is not a target code pointer.
-    /// </summary>
-    public enum DelayLoadMethodThunkRva : uint {}
 }

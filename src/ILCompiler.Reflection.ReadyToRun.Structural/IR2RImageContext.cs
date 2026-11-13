@@ -13,7 +13,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// signature decoding infrastructure, enabling the Structural project to
     /// be fully standalone.
     /// </remarks>
-    public interface IR2RImageContext
+    internal interface IR2RImageContext
     {
         /// <summary>
         /// Raw bytes of the PE image.

@@ -9,8 +9,6 @@ namespace System.Reflection.Metadata.ReadyToRun;
 
 public partial class ReadyToRunReader
 {
-    private readonly Dictionary<UnwindInfoRva, BaseGcInfo> _gcInfoCache = new();
-
     /// <summary>
     /// Resolve GC info for a runtime function identified by its <see cref="UnwindInfoRva"/>.
     /// GC info sits immediately after the unwind info in the image:
@@ -20,29 +18,25 @@ public partial class ReadyToRunReader
     /// <remarks>
     /// Crossgen2 emitter: per-method GC info blob attached to <c>MethodWithGCInfo</c> and aggregated by <c>RuntimeFunctionsGCInfoNode</c>.
     /// </remarks>
-    public BaseGcInfo GetGcInfo(UnwindInfoRva handle)
+    internal BaseGcInfo GetGcInfo(UnwindInfoRva handle)
     {
         EnsureSemanticDecodingSupported(nameof(GetGcInfo));
-
-        if (_gcInfoCache.TryGetValue(handle, out BaseGcInfo cached))
-            return cached;
 
         int gcInfoVersion = FormatProfile.GcInfoVersion;
         BaseGcInfo result;
         if (Machine == Machine.I386)
         {
-            int gcInfoOffset = GetOffsetForRVA((int)handle);
-            result = new x86.GcInfo(ImageReader, gcInfoOffset, gcInfoVersion);
+            int gcInfoOffset = (int)GetOffsetForRVA((ImageRVA)handle.Value);
+            result = new x86.GcInfo(_nativeReader, gcInfoOffset, gcInfoVersion);
         }
         else
         {
             BaseUnwindInfo unwindInfo = GetUnwindInfo(handle);
             int gcInfoRva = (int)handle + unwindInfo.Size;
-            int gcInfoOffset = GetOffsetForRVA(gcInfoRva);
-            result = new Amd64.GcInfo(ImageReader, gcInfoOffset, Machine, gcInfoVersion);
+            int gcInfoOffset = (int)GetOffsetForRVA((ImageRVA)gcInfoRva);
+            result = new Amd64.GcInfo(_nativeReader, gcInfoOffset, Machine, gcInfoVersion);
         }
 
-        _gcInfoCache[handle] = result;
         return result;
     }
 }

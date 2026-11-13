@@ -24,7 +24,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ProfileDataInfoTable(IReadOnlyList<ProfileDataInfoEntry> entries)
         {
-            Entries = entries;
+            Entries = ReadyToRunCollection.Snapshot(entries);
         }
     }
 
@@ -65,7 +65,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// For a well-formed record, this contains <see cref="BlockCount"/> * 8 bytes
         /// of (ILOffset: uint32, ExecutionCount: uint32) pairs.
         /// </summary>
-        public byte[] PayloadBytes { get; }
+        public System.Collections.Immutable.ImmutableArray<byte> PayloadBytes { get; }
 
         internal ProfileDataInfoEntry(
             ulong nextHandle,
@@ -82,7 +82,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             MethodToken = methodToken;
             ILSize = ilSize;
             BlockCount = blockCount;
-            PayloadBytes = payloadBytes;
+            PayloadBytes = System.Collections.Immutable.ImmutableArray.CreateRange(payloadBytes);
         }
     }
 
@@ -160,13 +160,13 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                 if (nextHandle > long.MaxValue)
                     throw new BadImageFormatException($"ProfileDataInfo next handle 0x{nextHandle:X} is outside the supported VA range.");
-                if (!_platformBinaryReader.TryGetFileOffsetFromImageVA((long)nextHandle, out int nextFileOffset))
+                if (!_platformBinaryReader.TryGetFileOffsetFromImageVA((long)nextHandle, out ImageOffset nextFileOffset))
                     throw new BadImageFormatException(
                         $"ProfileDataInfo next handle 0x{nextHandle:X} could not be converted to a file offset.");
-                if (nextFileOffset < sectionOffset || nextFileOffset >= sectionEndOffset)
+                if ((int)nextFileOffset < sectionOffset || (int)nextFileOffset >= sectionEndOffset)
                     throw new BadImageFormatException("ProfileDataInfo next handle points outside its containing section.");
 
-                currentOffset = nextFileOffset;
+                currentOffset = (int)nextFileOffset;
             }
 
             return new ProfileDataInfoTable(entries);

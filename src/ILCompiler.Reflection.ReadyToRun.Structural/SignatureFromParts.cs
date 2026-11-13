@@ -88,7 +88,7 @@ public sealed partial class MethodSignature
             throw new BadImageFormatException($"Unexpected end of signature stream; expected {kind}");
         if (parts[index].Kind != kind)
             throw new BadImageFormatException($"Expected {kind} at index {index}, got {parts[index].Kind}");
-        return parts[index++].Blob;
+        return parts[index++].Blob.AsSpan().ToArray();
     }
 }
 
@@ -400,8 +400,8 @@ public sealed partial class R2RFixupSignature
 
             case ReadyToRunFixupKind.StoreMultiCallableAddrOfCode:
                 return new R2RStoreMultiCallableAddrFixupPayload(
-                    (uint)MethodSignature.Expect(parts, ref index, SignaturePartKind.StoreMultiCallableTargetRva),
-                    (uint)MethodSignature.Expect(parts, ref index, SignaturePartKind.StoreMultiCallableLocationRva));
+                    (ImageRVA)(uint)MethodSignature.Expect(parts, ref index, SignaturePartKind.StoreMultiCallableTargetRva),
+                    (ImageRVA)(uint)MethodSignature.Expect(parts, ref index, SignaturePartKind.StoreMultiCallableLocationRva));
 
             case ReadyToRunFixupKind.InjectStringThunks:
             {

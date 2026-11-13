@@ -12,7 +12,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// just enough surface for the structural ReadyToRun reader to locate the R2R header
     /// and resolve RVA-based references.
     /// </summary>
-    public interface IPlatformBinaryReader : IDisposable
+    internal interface IPlatformBinaryReader : IDisposable
     {
         /// <summary>
         /// Gets the machine type of the binary image.
@@ -23,7 +23,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Translates a relative virtual address into a file offset within the underlying image bytes.
         /// </summary>
         /// <param name="rva">The relative virtual address.</param>
-        int GetOffset(int rva);
+        ImageOffset GetOffset(ImageRVA rva);
 
         /// <summary>
         /// Try to get the ReadyToRun header RVA for this image.
@@ -31,7 +31,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <param name="rva">RVA of the ReadyToRun header if available, 0 when not.</param>
         /// <param name="isComposite">true when the reader represents a composite ReadyToRun image, false for regular R2R.</param>
         /// <returns>true when the reader represents a ReadyToRun image (composite or regular), false otherwise.</returns>
-        bool TryGetReadyToRunHeader(out int rva, out bool isComposite);
+        bool TryGetReadyToRunHeader(out ImageRVA rva, out bool isComposite);
 
         /// <summary>
         /// Creates standalone assembly metadata from the image's embedded metadata, or returns null if none is present.
@@ -53,7 +53,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </remarks>
         /// <param name="offset">File offset of the manifest metadata section.</param>
         /// <param name="size">Size of the manifest metadata section in bytes.</param>
-        MetadataReader GetManifestAssemblyMetadata(int offset, int size);
+        MetadataReader GetManifestAssemblyMetadata(ImageOffset offset, int size);
 
         /// <summary>
         /// Attempts to convert a relocated image virtual address (VA) to a file offset.
@@ -68,6 +68,6 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// conversion (e.g. Webcil / WASM) or when <paramref name="imageVA"/> does not fall
         /// inside any known section.
         /// </returns>
-        bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset);
+        bool TryGetFileOffsetFromImageVA(long imageVA, out ImageOffset fileOffset);
     }
 }

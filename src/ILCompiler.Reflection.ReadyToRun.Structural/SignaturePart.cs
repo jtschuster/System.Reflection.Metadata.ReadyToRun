@@ -147,27 +147,27 @@ public readonly struct SignaturePart
     /// Byte blob. Non-null only for <see cref="SignaturePartKind.ILBodyBlob"/> and
     /// <see cref="SignaturePartKind.TypeLayoutGcRefBlob"/>.
     /// </summary>
-    public byte[] Blob { get; }
+    public ImmutableArray<byte> Blob { get; }
 
     public SignaturePart(SignaturePartKind kind, long value)
     {
         Kind = kind;
         Value = value;
-        Blob = null;
+        Blob = default;
     }
 
     public SignaturePart(SignaturePartKind kind, byte[] blob)
     {
         Kind = kind;
         Value = blob is null ? 0 : blob.Length;
-        Blob = blob;
+        Blob = blob is null ? default : ImmutableArray.CreateRange(blob);
     }
 
     public override string ToString()
-        => Blob is null
+        => Blob.IsDefault
             ? $"{Kind}=0x{Value:X}"
             : Kind == SignaturePartKind.InjectStringThunkName
-                ? $"{Kind}=\"{Encoding.UTF8.GetString(Blob)}\""
+                ? $"{Kind}=\"{Encoding.UTF8.GetString(Blob.AsSpan())}\""
                 : $"{Kind}={Blob.Length}bytes";
 }
 

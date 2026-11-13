@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 using Xunit;
 
@@ -66,15 +67,16 @@ public sealed class ApiConventionTests
     }
 
     /// <summary>
-    /// Opaque handles are enums whose underlying primitive matches the on-disk field size (uint for
-    /// the 32-bit RVA/offset/index values), recoverable via cast, and never bitmask flags.
+    /// Opaque handles are readonly value types whose raw value matches the on-disk field size.
     /// </summary>
-    public static IEnumerable<object[]> OpaqueHandleEnums() => new[]
+    public static IEnumerable<object[]> OpaqueValueTypes() => new[]
     {
+        new object[] { "ImageOffset" },
         new object[] { "ImageRVA" },
         new object[] { "PCode" },
         new object[] { "CodeRva" },
         new object[] { "MethodRid" },
+        new object[] { "TypeRid" },
         new object[] { "RuntimeFunctionIndex" },
         new object[] { "EHInfoRva" },
         new object[] { "UnwindInfoRva" },
@@ -91,20 +93,21 @@ public sealed class ApiConventionTests
         new object[] { "R2ROpaqueFixupPayloadOffset" },
         new object[] { "ExternalTypeMapInnerHandle" },
         new object[] { "ProxyTypeMapInnerHandle" },
+        new object[] { "ImportSectionIndex" },
+        new object[] { "ImportCellIndex" },
     };
 
     [Theory]
-    [MemberData(nameof(OpaqueHandleEnums))]
-    public void OpaqueHandleEnums_AreUIntBackedAndNotFlags(string typeName)
+    [MemberData(nameof(OpaqueValueTypes))]
+    public void OpaqueValueTypes_AreReadonlyUIntBackedStructs(string typeName)
     {
         Type type = RequireType(typeName);
-        Assert.True(type.IsEnum, $"{typeName} should be an enum.");
-        Assert.Equal(typeof(uint), Enum.GetUnderlyingType(type));
-        Assert.Empty(type.GetCustomAttributes(typeof(FlagsAttribute), inherit: false));
-
-        // The raw value must be recoverable via a numeric cast.
-        object zero = Enum.ToObject(type, 0u);
-        Assert.Equal(0u, Convert.ToUInt32(zero));
+        Assert.True(type.IsValueType && !type.IsEnum, $"{typeName} should be a value type, not an enum.");
+        Assert.True(type.IsDefined(typeof(IsReadOnlyAttribute), inherit: false), $"{typeName} should be readonly.");
+        Assert.Equal(typeof(uint), type.GetProperty("Value")?.PropertyType);
+        Assert.Contains(type.GetMethods(BindingFlags.Public | BindingFlags.Static), method =>
+            method.Name == "op_Explicit" && method.ReturnType == type && method.GetParameters() is [{ ParameterType: var parameterType }] && parameterType == typeof(uint));
+        Assert.DoesNotContain(type.GetMethods(BindingFlags.Public | BindingFlags.Static), method => method.Name == "op_Implicit");
     }
 
     [Fact]
@@ -133,9 +136,54 @@ public sealed class ApiConventionTests
     {
         Type type = RequireType("HotColdMapEntry");
         Type runtimeFunctionIndex = RequireType("RuntimeFunctionIndex");
-
         Assert.Equal(runtimeFunctionIndex, type.GetProperty("HotRuntimeFunctionIndex")?.PropertyType);
         Assert.Equal(runtimeFunctionIndex, type.GetProperty("ColdRuntimeFunctionIndex")?.PropertyType);
+    }
+
+    [Fact]
+    public void ReaderPublicSurface_DoesNotExposePlatformReadersOrLegacyDecoders()
+    {
+        Assert.False(typeof(IPlatformBinaryReader).IsPublic);
+        Assert.False(typeof(PEImageReader).IsPublic);
+        Assert.Null(typeof(ReadyToRunReader).GetMethod("GetGcInfo"));
+        Assert.Null(typeof(ReadyToRunReader).GetMethod("GetUnwindInfo"));
+    }
+
+    [Fact]
+    public void DebugInfoEntries_PreserveSparseRuntimeFunctionIndices()
+    {
+        var table = new DebugInfoTable(new List<DebugInfoEntry>
+        {
+            new((RuntimeFunctionIndex)0, (DebugInfoOffset)12),
+            new((RuntimeFunctionIndex)5, (DebugInfoOffset)34),
+        });
+
+        Assert.Equal(new uint[] { 0, 5 }, table.Entries.Select(entry => entry.RuntimeFunctionIndex.Value));
+    }
+
+    [Fact]
+    public void TableCollections_AreSnapshotsAndCannotBeMutated()
+    {
+        var source = new List<WasmAsyncResumeInfoChunk>
+        {
+            new(1, 2, 8),
+        };
+        var table = new WasmAsyncResumeInfoTable(source);
+
+        source.Add(new WasmAsyncResumeInfoChunk(3, 4, 8));
+
+        Assert.Single(table.Chunks);
+        Assert.Throws<NotSupportedException>(() =>
+            ((IList<WasmAsyncResumeInfoChunk>)table.Chunks).Add(new WasmAsyncResumeInfoChunk(5, 6, 8)));
+    }
+
+    [Fact]
+    public void TypeGenericInfoMap_ThrowsForOutOfRangeRids()
+    {
+        var table = new TypeGenericInfoMapTable(2, new byte[1]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => table.GetInfo((TypeRid)0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => table.GetInfo((TypeRid)3));
     }
 
     [Fact]
@@ -225,7 +273,7 @@ public sealed class ApiConventionTests
         Type instanceMethodTable = RequireType("InstanceMethodEntryPointsTable");
         Type pgoEntry = RequireType("PgoEntry");
 
-        Assert.NotNull(reader.GetMethod("DecodeFixupSignature", new[] { typeof(int), optionsInterface }));
+        Assert.NotNull(reader.GetMethod("DecodeFixupSignature", new[] { RequireType("SignatureRva"), optionsInterface }));
         Assert.NotNull(reader.GetMethod("GetInstanceMethodPayload", new[] { instanceMethodEntry, optionsInterface }));
         Assert.NotNull(reader.GetMethod("GetPgoPayload", new[] { pgoEntry, optionsInterface }));
         Assert.NotNull(reader.GetMethod(

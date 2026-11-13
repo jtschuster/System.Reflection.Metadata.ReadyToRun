@@ -17,12 +17,12 @@ namespace System.Reflection.Metadata.ReadyToRun
     public readonly struct ImportFixupReference : IEquatable<ImportFixupReference>
     {
         /// <summary>Index into the import sections table (corresponds to an ImportSections entry).</summary>
-        public uint ImportSectionIndex { get; }
+        public ImportSectionIndex ImportSectionIndex { get; }
 
         /// <summary>Fixup index within the import section (0-based offset into the section's fixup cell array).</summary>
-        public uint FixupIndex { get; }
+        public ImportCellIndex FixupIndex { get; }
 
-        public ImportFixupReference(uint importSectionIndex, uint fixupIndex)
+        public ImportFixupReference(ImportSectionIndex importSectionIndex, ImportCellIndex fixupIndex)
         {
             ImportSectionIndex = importSectionIndex;
             FixupIndex = fixupIndex;

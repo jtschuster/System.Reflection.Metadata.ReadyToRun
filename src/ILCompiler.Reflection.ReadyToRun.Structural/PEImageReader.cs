@@ -10,7 +10,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// <summary>
     /// Wrapper around <see cref="PEReader"/> that implements <see cref="IPlatformBinaryReader"/>.
     /// </summary>
-    public class PEImageReader : IPlatformBinaryReader
+    internal class PEImageReader : IPlatformBinaryReader
     {
         private readonly PEReader _peReader;
         private readonly bool _leaveOpen;
@@ -51,15 +51,16 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
         }
 
-        public int GetOffset(int rva) => _peReader.GetOffset(rva);
+        public ImageOffset GetOffset(ImageRVA rva) => (ImageOffset)_peReader.GetOffset((int)rva);
 
-        public bool TryGetReadyToRunHeader(out int rva, out bool isComposite)
+        public bool TryGetReadyToRunHeader(out ImageRVA rva, out bool isComposite)
         {
             if ((_peReader.PEHeaders.CorHeader.Flags & CorFlags.ILLibrary) == 0)
             {
                 // Composite R2R - check for RTR_HEADER export
-                if (_peReader.TryGetCompositeReadyToRunHeader(out rva))
+                if (_peReader.TryGetCompositeReadyToRunHeader(out int headerRva))
                 {
+                    rva = (ImageRVA)headerRva;
                     isComposite = true;
                     return true;
                 }
@@ -69,13 +70,13 @@ namespace System.Reflection.Metadata.ReadyToRun
                 var r2rHeaderDirectory = _peReader.PEHeaders.CorHeader.ManagedNativeHeaderDirectory;
                 if (r2rHeaderDirectory.Size != 0)
                 {
-                    rva = r2rHeaderDirectory.RelativeVirtualAddress;
+                    rva = (ImageRVA)r2rHeaderDirectory.RelativeVirtualAddress;
                     isComposite = false;
                     return true;
                 }
             }
 
-            rva = 0;
+            rva = default;
             isComposite = false;
             return false;
         }
@@ -83,16 +84,16 @@ namespace System.Reflection.Metadata.ReadyToRun
         public MetadataReader GetStandaloneAssemblyMetadata()
             => _peReader.HasMetadata ? _peReader.GetMetadataReader() : null;
 
-        public unsafe MetadataReader GetManifestAssemblyMetadata(int offset, int size)
+        public unsafe MetadataReader GetManifestAssemblyMetadata(ImageOffset offset, int size)
         {
             byte* pImage = _peReader.GetEntireImage().Pointer;
-            return new MetadataReader(pImage + offset, size);
+            return new MetadataReader(pImage + (int)offset, size);
         }
 
-        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out ImageOffset fileOffset)
         {
             ulong imageBase = _peReader.PEHeaders.PEHeader.ImageBase;
-            fileOffset = 0;
+            fileOffset = default;
 
             if (imageVA <= 0 || (ulong)imageVA < imageBase)
                 return false;
@@ -103,7 +104,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             try
             {
-                fileOffset = _peReader.GetOffset((int)rva);
+                fileOffset = (ImageOffset)_peReader.GetOffset((int)rva);
                 return true;
             }
             catch (BadImageFormatException)

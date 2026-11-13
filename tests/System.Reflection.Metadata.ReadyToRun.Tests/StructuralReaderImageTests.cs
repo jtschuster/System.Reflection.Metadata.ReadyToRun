@@ -263,8 +263,8 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
 
     private static uint ReadBucketMask(ReadyToRunReader reader, ReadyToRunSection section)
     {
-        int offset = reader.GetOffsetForRVA(section.RelativeVirtualAddress);
-        byte header = reader.ImageReader.ReadByte(ref offset);
+        int offset = (int)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+        byte header = reader.ReadByte((ImageOffset)(uint)offset);
         int numberOfBucketsShift = header >> 2;
         return (uint)((1 << numberOfBucketsShift) - 1);
     }

@@ -23,7 +23,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
     /// r2rdump-only WASM disassembly helpers (elem/type/function section parsing) are intentionally
     /// omitted because the structural reader never disassembles code.
     /// </remarks>
-    public sealed class WebcilImageReader : IPlatformBinaryReader
+    internal sealed class WebcilImageReader : IPlatformBinaryReader
     {
         private readonly byte[] _image;
         private readonly GCHandle _pinnedArray;
@@ -138,25 +138,25 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             }
         }
 
-        public int GetOffset(int rva)
+        public ImageOffset GetOffset(ImageRVA rva)
         {
             foreach (WebcilSectionHeader section in _sections)
             {
-                if ((uint)rva >= section.VirtualAddress && (uint)rva < (ulong)section.VirtualAddress + section.VirtualSize)
+                if (rva.Value >= section.VirtualAddress && rva.Value < (ulong)section.VirtualAddress + section.VirtualSize)
                 {
-                    uint sectionRelative = (uint)rva - section.VirtualAddress;
+                    uint sectionRelative = rva.Value - section.VirtualAddress;
                     if (sectionRelative >= section.SizeOfRawData)
-                        throw new BadImageFormatException($"RVA 0x{rva:X} maps beyond section raw data");
+                        throw new BadImageFormatException($"RVA 0x{rva.Value:X} maps beyond section raw data");
 
                     long fileOffset = section.PointerToRawData + (long)sectionRelative + _webcilOffset;
                     if (fileOffset < 0 || fileOffset > _image.Length)
-                        throw new BadImageFormatException($"RVA 0x{rva:X} maps outside the image");
+                        throw new BadImageFormatException($"RVA 0x{rva.Value:X} maps outside the image");
 
-                    return checked((int)fileOffset);
+                    return (ImageOffset)checked((int)fileOffset);
                 }
             }
 
-            throw new BadImageFormatException($"RVA 0x{rva:X} not found in any Webcil section");
+            throw new BadImageFormatException($"RVA 0x{rva.Value:X} not found in any Webcil section");
         }
 
         /// <summary>
@@ -179,18 +179,18 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             throw new BadImageFormatException($"RVA 0x{rva:X} not found in any Webcil section");
         }
 
-        public bool TryGetReadyToRunHeader(out int rva, out bool isComposite)
+        public bool TryGetReadyToRunHeader(out ImageRVA rva, out bool isComposite)
         {
             // Webcil R2R images use the COR header's ManagedNativeHeaderDirectory, same as a regular
             // (non-composite) PE R2R image.
             if ((_corFlags & CorFlags.ILLibrary) != 0 && _managedNativeHeaderDirectory.Size != 0)
             {
-                rva = _managedNativeHeaderDirectory.RelativeVirtualAddress;
+                rva = (ImageRVA)_managedNativeHeaderDirectory.RelativeVirtualAddress;
                 isComposite = false;
                 return true;
             }
 
-            rva = 0;
+            rva = default;
             isComposite = false;
             return false;
         }
@@ -200,34 +200,34 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             if (_corHeaderMetadataDirectory.Size == 0)
                 return null;
 
-            int metadataOffset = GetOffset(_corHeaderMetadataDirectory.RelativeVirtualAddress);
+            ImageOffset metadataOffset = GetOffset((ImageRVA)_corHeaderMetadataDirectory.RelativeVirtualAddress);
             return GetManifestAssemblyMetadata(metadataOffset, _corHeaderMetadataDirectory.Size);
         }
 
-        public unsafe MetadataReader GetManifestAssemblyMetadata(int offset, int size)
+        public unsafe MetadataReader GetManifestAssemblyMetadata(ImageOffset offset, int size)
         {
             // offset is an absolute file offset into the (already pinned) image bytes; it has had
             // _webcilOffset applied already by GetOffset, so we must not add it again here.
-            if (size <= 0 || offset < 0 || (long)offset + size > _image.Length)
+            if (size <= 0 || offset.Value > int.MaxValue || (long)offset.Value + size > _image.Length)
                 throw new BadImageFormatException("Metadata range is outside the image");
 
-            return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[offset]), size);
+            return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[(int)offset]), size);
         }
 
         /// <summary>
         /// Webcil images do not have a PE ImageBase, so VA-to-offset conversion
         /// is not supported. Always returns <see langword="false"/>.
         /// </summary>
-        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out ImageOffset fileOffset)
         {
-            fileOffset = 0;
+            fileOffset = default;
             return false;
         }
 
         private void ReadCorHeader(out CorFlags flags, out DirectoryEntry metadataDirectory, out DirectoryEntry managedNativeHeaderDirectory)
         {
             ReadOnlySpan<byte> image = _image;
-            int corHeaderOffset = GetOffset((int)_header.PeCliHeaderRva);
+            int corHeaderOffset = (int)GetOffset((ImageRVA)_header.PeCliHeaderRva);
 
             // CorHeader layout:
             // int32  cb (byte count)

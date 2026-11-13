@@ -236,7 +236,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                 while (true)
                 {
-                    fixupCells.Add(new FixupCellRef(curTableIndex, cellIndex));
+                    fixupCells.Add(new FixupCellRef((ImportSectionIndex)curTableIndex, (ImportCellIndex)cellIndex));
 
                     uint delta = nibbleReader.ReadUInt();
                     if (delta == 0)
@@ -256,7 +256,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 curTableIndex += tableDelta;
             }
 
-            return fixupCells;
+            return ReadyToRunCollection.Snapshot(fixupCells);
         }
 
         private void RegisterPayloadRange(int payloadOffset, int startOffset, int endOffset)
@@ -334,7 +334,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// Pass to <see cref="ReadyToRunReader.GetInstanceMethodPayload(InstanceMethodEntry)"/> to decode.
     /// The underlying value is the file offset (not RVA) of the payload start.
     /// </summary>
-    public enum InstanceMethodPayloadOffset : uint { }
+
 
     /// <summary>
     /// A single entry in the InstanceMethodEntryPoints hashtable.

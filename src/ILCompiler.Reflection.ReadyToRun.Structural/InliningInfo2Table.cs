@@ -27,7 +27,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal InliningInfo2Table(List<InliningInfo2Entry> entries)
         {
-            Entries = entries;
+            Entries = ReadyToRunCollection.Snapshot(entries);
         }
     }
 
@@ -125,7 +125,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             InlineeRid = inlineeRid;
             InlineeHasModule = inlineeHasModule;
             InlineeModuleIndex = inlineeModuleIndex;
-            Inliners = inliners;
+            Inliners = ReadyToRunCollection.Snapshot(inliners);
         }
     }
 

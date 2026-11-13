@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections.Immutable;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -19,7 +20,7 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// A low-level, structural reader for Ready-to-Run images. Parses headers and sections
     /// without cross-referencing metadata — each section table exposes only the raw indices,
     /// RIDs, offsets, and flags encoded in that section.
-    /// Also implements <see cref="IR2RImageContext"/> to support signature decoding.
+    /// Also implements the internal signature-decoder context.
     /// </summary>
     public sealed partial class ReadyToRunReader : IR2RImageContext, IDisposable
     {
@@ -33,7 +34,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         private ReadyToRunFormatProfile _formatProfile;
         private bool? _isComposite;
 
-        public ReadyToRunReader(
+        internal ReadyToRunReader(
             IPlatformBinaryReader platformBinaryReader,
             NativeReader nativeReader,
             string filename = null,
@@ -45,14 +46,60 @@ namespace System.Reflection.Metadata.ReadyToRun
             _options = options ?? ReadyToRunReaderOptions.Default;
         }
 
+        /// <summary>
+        /// Creates a reader over a snapshot of a PE, Webcil, or Mach-O image.
+        /// </summary>
+        public ReadyToRunReader(
+            ReadOnlyMemory<byte> image,
+            string filename = null,
+            ReadyToRunReaderOptions options = null)
+            : this(CreateImageReaders(image), filename, options)
+        {
+        }
+
+        private ReadyToRunReader(
+            (IPlatformBinaryReader PlatformReader, NativeReader ImageReader) readers,
+            string filename,
+            ReadyToRunReaderOptions options)
+            : this(readers.PlatformReader, readers.ImageReader, filename, options)
+        {
+        }
+
+        private static (IPlatformBinaryReader PlatformReader, NativeReader ImageReader) CreateImageReaders(
+            ReadOnlyMemory<byte> image)
+        {
+            byte[] snapshot = image.ToArray();
+            IPlatformBinaryReader platformReader;
+            bool isMachO = snapshot.Length >= 4
+                && snapshot[0] == 0xCF
+                && snapshot[1] == 0xFA
+                && snapshot[2] == 0xED
+                && snapshot[3] == 0xFE;
+            if (isMachO)
+            {
+                platformReader = new MachO.MachOImageReader(snapshot);
+            }
+            else if (Webcil.WebcilImageReader.IsWebcilImage(snapshot))
+            {
+                platformReader = new Webcil.WebcilImageReader(snapshot);
+            }
+            else
+            {
+                var peReader = new PEReader(ImmutableArray.CreateRange(snapshot));
+                platformReader = new PEImageReader(peReader);
+            }
+
+            var imageReader = new NativeReader(new MemoryStream(snapshot, writable: false), leaveOpen: false);
+            return (platformReader, imageReader);
+        }
+
         public void Dispose()
         {
             _nativeReader.Dispose();
             _platformBinaryReader.Dispose();
         }
 
-        /// <summary>NativeReader for raw byte access into the image.</summary>
-        public NativeReader ImageReader => _nativeReader;
+        NativeReader IR2RImageContext.ImageReader => _nativeReader;
 
         /// <summary>Filename of the R2R image being read.</summary>
         public string Filename => _filename;
@@ -148,11 +195,29 @@ namespace System.Reflection.Metadata.ReadyToRun
             }
         }
 
-        /// <summary>Get the file offset corresponding to an RVA.</summary>
-        public int GetOffsetForRVA(int rva) => _platformBinaryReader.GetOffset(rva);
+        /// <summary>Gets the image file offset corresponding to an image RVA.</summary>
+        public ImageOffset GetOffsetForRVA(ImageRVA rva) => _platformBinaryReader.GetOffset(rva);
 
-        /// <summary>Get the file offset corresponding to a section RVA.</summary>
-        public int GetOffsetForRVA(ImageRVA rva) => _platformBinaryReader.GetOffset((int)rva);
+        /// <summary>Reads one raw byte at the specified image file offset.</summary>
+        public byte ReadByte(ImageOffset offset)
+        {
+            int currentOffset = GetImageOffset(offset);
+            return _nativeReader.ReadByte(ref currentOffset);
+        }
+
+        /// <summary>Copies raw image bytes beginning at the specified file offset.</summary>
+        public void ReadBytes(ImageOffset offset, Span<byte> destination)
+        {
+            int currentOffset = GetImageOffset(offset);
+            _nativeReader.ReadSpanAt(ref currentOffset, destination);
+        }
+
+        private static int GetImageOffset(ImageOffset offset)
+        {
+            if (offset.Value > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(offset), "Image offset exceeds the supported reader range.");
+            return (int)offset;
+        }
 
         /// <summary>
         /// All section handles from the global R2R header.
@@ -164,11 +229,11 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (_header is not null)
                 return _header;
 
-            if (!_platformBinaryReader.TryGetReadyToRunHeader(out int headerRva, out bool isComposite))
+            if (!_platformBinaryReader.TryGetReadyToRunHeader(out ImageRVA headerRva, out bool isComposite))
                 throw new BadImageFormatException("Not a ReadyToRun image");
 
             _isComposite = isComposite;
-            int headerOffset = GetOffsetForRVA(headerRva);
+            ImageOffset headerOffset = GetOffsetForRVA(headerRva);
             _header = ReadReadyToRunHeader(headerOffset);
             _formatProfile = ReadyToRunFormatProfile.Create(_header.MajorVersion, _header.MinorVersion);
             return _header;
@@ -225,8 +290,8 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (lastRva > int.MaxValue)
                 throw new NotSupportedException($"ReadyToRun section end RVA 0x{lastRva:X8} exceeds the reader's address range.");
 
-            int startOffset = GetOffsetForRVA((int)rva);
-            int endOffset = GetOffsetForRVA((int)lastRva);
+            int startOffset = (int)GetOffsetForRVA((ImageRVA)rva);
+            int endOffset = (int)GetOffsetForRVA((ImageRVA)lastRva);
             long expectedEndOffset = (long)startOffset + section.Size - 1;
             if (expectedEndOffset >= int.MaxValue)
             {
@@ -266,7 +331,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (rva > int.MaxValue)
                 throw new NotSupportedException($"{operation} RVA 0x{rva:X8} exceeds the reader's address range.");
 
-            int startOffset = GetOffsetForRVA((int)rva);
+            int startOffset = (int)GetOffsetForRVA((ImageRVA)rva);
             if (size == 0)
             {
                 if (startOffset < 0 || startOffset > _nativeReader.Length)
@@ -287,7 +352,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (lastRva > int.MaxValue)
                 throw new NotSupportedException($"{operation} end RVA 0x{lastRva:X8} exceeds the reader's address range.");
 
-            int lastOffset = GetOffsetForRVA((int)lastRva);
+            int lastOffset = (int)GetOffsetForRVA((ImageRVA)lastRva);
             long expectedLastOffset = (long)startOffset + size - 1;
             if (expectedLastOffset >= int.MaxValue)
                 throw new NotSupportedException($"{operation} exceeds the reader's file-offset range.");
@@ -376,7 +441,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (manifestSize <= 0)
                 return null;
 
-            return _platformBinaryReader.GetManifestAssemblyMetadata(manifestOffset, manifestSize);
+            return _platformBinaryReader.GetManifestAssemblyMetadata((ImageOffset)manifestOffset, manifestSize);
         }
 
         // ── Entry point descriptor decoding ────────────────────────────────
@@ -388,24 +453,30 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         /// <param name="offset">Image offset to start reading from.</param>
         /// <param name="runtimeFunctionIndex">Decoded runtime function index.</param>
-        /// <param name="fixupOffset">Fixup list offset, or null if no fixups.</param>
-        public void GetRuntimeFunctionIndexFromOffset(int offset, out int runtimeFunctionIndex, out int? fixupOffset)
+        /// <param name="fixupOffset">Fixup list image offset, or null if no fixups.</param>
+        public void GetRuntimeFunctionIndexFromOffset(
+            ImageOffset offset,
+            out RuntimeFunctionIndex runtimeFunctionIndex,
+            out ImageOffset? fixupOffset)
         {
             EnsureSemanticDecodingSupported(nameof(GetRuntimeFunctionIndexFromOffset));
             fixupOffset = null;
 
+            if (offset.Value > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(offset), "Image offset exceeds the supported reader range.");
+            int currentOffset = (int)offset;
             uint id = 0;
-            offset = (int)_nativeReader.DecodeUnsigned((uint)offset, ref id);
+            currentOffset = (int)_nativeReader.DecodeUnsigned((uint)currentOffset, ref id);
             if ((id & 1) != 0)
             {
                 if ((id & 2) != 0)
                 {
                     uint val = 0;
-                    _nativeReader.DecodeUnsigned((uint)offset, ref val);
-                    offset -= (int)val;
+                    _nativeReader.DecodeUnsigned((uint)currentOffset, ref val);
+                    currentOffset -= (int)val;
                 }
 
-                fixupOffset = offset;
+                fixupOffset = (ImageOffset)currentOffset;
                 id >>= 2;
             }
             else
@@ -413,7 +484,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 id >>= 1;
             }
 
-            runtimeFunctionIndex = (int)id;
+            runtimeFunctionIndex = (RuntimeFunctionIndex)id;
         }
 
         /// <summary>
@@ -424,17 +495,18 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         /// <param name="signatureRva">The RVA of the signature in the image.</param>
         /// <returns>The decoded fixup signature AST node.</returns>
-        public R2RFixupSignature DecodeFixupSignature(int signatureRva)
+        public R2RFixupSignature DecodeFixupSignature(SignatureRva signatureRva)
             => DecodeFixupSignature(signatureRva, SignatureDecodingOptions);
 
         /// <summary>
         /// Decode a fixup signature using explicit ReadyToRun version and validation settings
         /// instead of the current image header and reader validation mode.
         /// </summary>
-        public R2RFixupSignature DecodeFixupSignature(int signatureRva, IReadyToRunSignatureDecodingOptions options)
+        public R2RFixupSignature DecodeFixupSignature(SignatureRva signatureRva, IReadyToRunSignatureDecodingOptions options)
         {
             EnsureSemanticDecodingSupported(nameof(DecodeFixupSignature));
-            int offset = _platformBinaryReader.GetOffset(signatureRva);
+            ArgumentNullException.ThrowIfNull(options);
+            int offset = (int)_platformBinaryReader.GetOffset((ImageRVA)signatureRva.Value);
             R2RSignature signature = RawSignatureDecoder.DecodeFixupSignature(_nativeReader, offset, TargetPointerSize, options);
             return R2RFixupSignature.FromSignature(signature);
         }

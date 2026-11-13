@@ -19,7 +19,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         internal ExceptionInfoTable(List<ExceptionInfoEntry> entries)
         {
-            Entries = entries;
+            Entries = ReadyToRunCollection.Snapshot(entries);
         }
     }
 
@@ -82,5 +82,4 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>Opaque handle representing an RVA pointing to exception handling information.</summary>
-    public enum EHInfoRva : uint {}
 }

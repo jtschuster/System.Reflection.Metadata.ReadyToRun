@@ -13,7 +13,7 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
     /// <summary>
     /// Wrapper around a Mach-O image that implements <see cref="IPlatformBinaryReader"/>.
     /// </summary>
-    public class MachOImageReader : IPlatformBinaryReader
+    internal class MachOImageReader : IPlatformBinaryReader
     {
         private readonly byte[] _image;
         private readonly MachHeader _header;
@@ -55,25 +55,25 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
             }
         }
 
-        public int GetOffset(int rva)
+        public ImageOffset GetOffset(ImageRVA rva)
         {
             // Use section-level file offset, not segment-level. Sections within a segment
             // have independent file offsets that may differ from segment.fileoff + (rva - segment.vmaddr)
             // due to Mach-O header packing.
-            if (TryGetContainingSection((ulong)rva, out Section64LoadCommand section))
+            if (TryGetContainingSection(rva.Value, out Section64LoadCommand section))
             {
-                ulong offsetWithinSection = (ulong)rva - section.GetVMAddress(_header);
+                ulong offsetWithinSection = rva.Value - section.GetVMAddress(_header);
                 ulong fileOffset = section.GetFileOffset(_header) + offsetWithinSection;
                 System.Diagnostics.Debug.Assert(fileOffset <= int.MaxValue);
-                return (int)fileOffset;
+                return (ImageOffset)(uint)fileOffset;
             }
             else
             {
-                throw new BadImageFormatException("Failed to convert RVA to offset: " + rva);
+                throw new BadImageFormatException("Failed to convert RVA to offset: " + rva.Value);
             }
         }
 
-        public bool TryGetReadyToRunHeader(out int rva, out bool isComposite)
+        public bool TryGetReadyToRunHeader(out ImageRVA rva, out bool isComposite)
         {
             if (!_rtrHeaderRva.HasValue)
             {
@@ -90,25 +90,25 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
                 }
             }
 
-            rva = _rtrHeaderRva.Value;
-            isComposite = rva != 0; // Mach-O R2R images are always composite
-            return rva != 0;
+            rva = (ImageRVA)_rtrHeaderRva.Value;
+            isComposite = rva.Value != 0; // Mach-O R2R images are always composite
+            return rva.Value != 0;
         }
 
         public MetadataReader GetStandaloneAssemblyMetadata() => null;
 
-        public unsafe MetadataReader GetManifestAssemblyMetadata(int offset, int size)
+        public unsafe MetadataReader GetManifestAssemblyMetadata(ImageOffset offset, int size)
         {
-            return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[offset]), size);
+            return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[(int)offset]), size);
         }
 
         /// <summary>
         /// Mach-O images do not expose a PE ImageBase, so VA-to-offset conversion
         /// is not supported. Always returns <see langword="false"/>.
         /// </summary>
-        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out ImageOffset fileOffset)
         {
-            fileOffset = 0;
+            fileOffset = default;
             return false;
         }
 

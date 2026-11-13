@@ -34,12 +34,13 @@ namespace System.Reflection.Metadata.ReadyToRun
         ///   [2]   HasConstraints
         ///   [3]   HasVariance
         /// </summary>
-        public ReadyToRunTypeGenericInfo GetInfo(int typeDefRid)
+        public ReadyToRunTypeGenericInfo GetInfo(TypeRid typeDefRid)
         {
-            if (typeDefRid < 1 || typeDefRid > Count)
-                return 0;
+            int rid = (int)typeDefRid;
+            if (rid < 1 || rid > Count)
+                throw new ArgumentOutOfRangeException(nameof(typeDefRid));
 
-            int index = typeDefRid - 1;
+            int index = rid - 1;
             int byteIndex = index / 2;
             byte nibble = (index % 2 == 0)
                 ? (byte)((_data[byteIndex] >> 4) & 0x0F)

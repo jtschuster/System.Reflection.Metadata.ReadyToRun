@@ -204,10 +204,11 @@ namespace System.Reflection.Metadata.ReadyToRun.Tests
             using ReadyToRunReader reader = CreateReader(image);
 
             ReadyToRunSection section = FindSection(reader.GetSections(), ReadyToRunSectionType.RuntimeFunctions);
-            int offset = reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+            int offset = (int)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
             for (int i = 0; i < runtimeFunctionBytes.Length; i++)
             {
-                Assert.Equal(runtimeFunctionBytes[i], reader.ImageReader.ReadByte(ref offset));
+                Assert.Equal(runtimeFunctionBytes[i], reader.ReadByte((ImageOffset)(uint)offset));
+                offset++;
             }
         }
 
@@ -251,7 +252,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Tests
             using var reader = new WebcilImageReader(image);
 
             // RVA 0 falls outside every section's virtual address range.
-            Assert.Throws<BadImageFormatException>(() => reader.GetOffset(0));
+            Assert.Throws<BadImageFormatException>(() => reader.GetOffset((ImageRVA)0));
         }
 
         private static ReadyToRunSection FindSection(IReadOnlyList<ReadyToRunSection> sections, ReadyToRunSectionType type)

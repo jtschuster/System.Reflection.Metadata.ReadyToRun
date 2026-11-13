@@ -430,10 +430,10 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             for (int componentIdx = 0; componentIdx < componentTable.Entries.Count; componentIdx++)
             {
                 ComponentAssemblyEntry componentEntry = componentTable.Entries[componentIdx];
-                if (componentEntry.AssemblyHeaderRva == 0 || componentEntry.AssemblyHeaderSize == 0)
+                if (componentEntry.AssemblyHeaderRva.Value == 0 || componentEntry.AssemblyHeaderSize == 0)
                     continue;
                 int moduleIndex = componentIdx + _resolver.ComponentAssemblyIndexOffset;
-                int headerOffset = _reader.GetOffsetForRVA(componentEntry.AssemblyHeaderRva);
+                ImageOffset headerOffset = _reader.GetOffsetForRVA(componentEntry.AssemblyHeaderRva);
                 ReadyToRunCoreHeader coreHeader;
                 try
                 {

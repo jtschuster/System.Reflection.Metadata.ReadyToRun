@@ -59,12 +59,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         public bool TryGetMethodDefEntryPoint(MethodDefEntryPointsTable table, MethodRid methodRid, out MethodDefEntry entry)
         {
             EnsureSemanticDecodingSupported(nameof(TryGetMethodDefEntryPoint));
+            ArgumentNullException.ThrowIfNull(table);
             int rowId = (int)methodRid;
             if (rowId <= 0 || rowId > table.EntryCount)
-            {
-                entry = null;
-                return false;
-            }
+                throw new ArgumentOutOfRangeException(nameof(methodRid));
 
             NativeArray methodEntryPoints = GetNativeArray(table.Entries);
             int offset = 0;
@@ -138,12 +136,12 @@ namespace System.Reflection.Metadata.ReadyToRun
     public sealed class FixupCellRef
     {
         /// <summary>Index of the import section in the ImportSections array.</summary>
-        public uint TableIndex { get; }
+        public ImportSectionIndex TableIndex { get; }
 
         /// <summary>Index of the entry within the import section.</summary>
-        public uint CellIndex { get; }
+        public ImportCellIndex CellIndex { get; }
 
-        internal FixupCellRef(uint tableIndex, uint cellIndex)
+        internal FixupCellRef(ImportSectionIndex tableIndex, ImportCellIndex cellIndex)
         {
             TableIndex = tableIndex;
             CellIndex = cellIndex;
@@ -151,5 +149,4 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>Opaque handle representing an index into the RuntimeFunctions table.</summary>
-    public enum RuntimeFunctionIndex : uint {}
 }

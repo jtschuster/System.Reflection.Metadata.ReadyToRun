@@ -509,7 +509,7 @@ public sealed class SectionCoverage100_126Tests
 
         Assert.Single(table.Groups);
         ExternalTypeMapGroup g = table.Groups[0];
-        Assert.Equal(new ImportFixupReference(1, 2), g.GroupRef);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)1, (ImportCellIndex)2), g.GroupRef);
         Assert.Equal(0u, g.State);
         Assert.Equal(default, g.InnerHandle); // no inner table when invalid
     }
@@ -566,7 +566,7 @@ public sealed class SectionCoverage100_126Tests
 
         Assert.Single(outerTable.Groups);
         ExternalTypeMapGroup g = outerTable.Groups[0];
-        Assert.Equal(new ImportFixupReference(1, 2), g.GroupRef);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)1, (ImportCellIndex)2), g.GroupRef);
         Assert.Equal(1u, g.State);
 
         IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(g.InnerHandle);
@@ -574,7 +574,7 @@ public sealed class SectionCoverage100_126Tests
         Assert.Single(innerEntries);
         ExternalTypeMapEntry e = innerEntries[0];
         Assert.Equal("Foo", e.Key);
-        Assert.Equal(new ImportFixupReference(3, 4), e.ResultRef);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)3, (ImportCellIndex)4), e.ResultRef);
         Assert.Throws<ArgumentException>(() => reader.GetExternalTypeMapEntries(
             (ExternalTypeMapInnerHandle)((uint)g.InnerHandle + 1)));
     }
@@ -638,15 +638,15 @@ public sealed class SectionCoverage100_126Tests
 
         Assert.Single(outerTable.Groups);
         ProxyTypeMapGroup g = outerTable.Groups[0];
-        Assert.Equal(new ImportFixupReference(5, 6), g.GroupRef);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)5, (ImportCellIndex)6), g.GroupRef);
         Assert.Equal(1u, g.State);
 
         IReadOnlyList<ProxyTypeMapEntry> innerEntries = reader.GetProxyTypeMapEntries(g.InnerHandle);
 
         Assert.Single(innerEntries);
         ProxyTypeMapEntry e = innerEntries[0];
-        Assert.Equal(new ImportFixupReference(1, 2), e.KeyRef);
-        Assert.Equal(new ImportFixupReference(3, 4), e.ValueRef);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)1, (ImportCellIndex)2), e.KeyRef);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)3, (ImportCellIndex)4), e.ValueRef);
         Assert.Throws<ArgumentException>(() => reader.GetProxyTypeMapEntries(
             (ProxyTypeMapInnerHandle)((uint)g.InnerHandle + 1)));
     }
@@ -706,7 +706,7 @@ public sealed class SectionCoverage100_126Tests
 
         Assert.Single(table.Entries);
         TypeMapAssemblyTargetsEntry e = table.Entries[0];
-        Assert.Equal(new ImportFixupReference(1, 2), e.GroupRef);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)1, (ImportCellIndex)2), e.GroupRef);
         Assert.Empty(e.ModuleRefs);
     }
 
@@ -731,11 +731,11 @@ public sealed class SectionCoverage100_126Tests
 
         Assert.Single(table.Entries);
         TypeMapAssemblyTargetsEntry e = table.Entries[0];
-        Assert.Equal(new ImportFixupReference(1, 2), e.GroupRef);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)1, (ImportCellIndex)2), e.GroupRef);
         Assert.Equal(3, e.ModuleRefs.Count);
-        Assert.Equal(new ImportFixupReference(3, 4), e.ModuleRefs[0]);
-        Assert.Equal(new ImportFixupReference(5, 6), e.ModuleRefs[1]);
-        Assert.Equal(new ImportFixupReference(7, 8), e.ModuleRefs[2]);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)3, (ImportCellIndex)4), e.ModuleRefs[0]);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)5, (ImportCellIndex)6), e.ModuleRefs[1]);
+        Assert.Equal(new ImportFixupReference((ImportSectionIndex)7, (ImportCellIndex)8), e.ModuleRefs[2]);
     }
 
     [Fact]
