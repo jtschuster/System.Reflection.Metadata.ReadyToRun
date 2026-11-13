@@ -533,8 +533,9 @@ public sealed class SectionCoverage100_126Tests
         ExternalTypeMapGroup g = outerTable.Groups[0];
         Assert.Equal(1u, g.State);
         Assert.NotEqual(default, g.InnerHandle);
+        Assert.True((uint)g.InnerHandle < (uint)section.Size);
 
-        IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(g.InnerHandle);
+        IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(section, g.InnerHandle);
         Assert.Empty(innerEntries);
     }
 
@@ -568,15 +569,14 @@ public sealed class SectionCoverage100_126Tests
         ExternalTypeMapGroup g = outerTable.Groups[0];
         Assert.Equal(new ImportFixupReference((ImportSectionIndex)1, (ImportCellIndex)2), g.GroupRef);
         Assert.Equal(1u, g.State);
+        Assert.True((uint)g.InnerHandle < (uint)section.Size);
 
-        IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(g.InnerHandle);
+        IReadOnlyList<ExternalTypeMapEntry> innerEntries = reader.GetExternalTypeMapEntries(section, g.InnerHandle);
 
         Assert.Single(innerEntries);
         ExternalTypeMapEntry e = innerEntries[0];
         Assert.Equal("Foo", e.Key);
         Assert.Equal(new ImportFixupReference((ImportSectionIndex)3, (ImportCellIndex)4), e.ResultRef);
-        Assert.Throws<ArgumentException>(() => reader.GetExternalTypeMapEntries(
-            (ExternalTypeMapInnerHandle)((uint)g.InnerHandle + 1)));
     }
 
     [Fact]
@@ -592,10 +592,10 @@ public sealed class SectionCoverage100_126Tests
             BuildOneEntryHashtable(outerEntryData),
             out _);
         using ReadyToRunReader reader = CreateReader(image);
-        ExternalTypeMapGroup group = Assert.Single(reader.GetExternalTypeMapsTable(
-            FindSection(reader.GetSections(), ReadyToRunSectionType.ExternalTypeMaps)).Groups);
+        ReadyToRunSection section = FindSection(reader.GetSections(), ReadyToRunSectionType.ExternalTypeMaps);
+        ExternalTypeMapGroup group = Assert.Single(reader.GetExternalTypeMapsTable(section).Groups);
 
-        Assert.Throws<BadImageFormatException>(() => reader.GetExternalTypeMapEntries(group.InnerHandle));
+        Assert.Throws<BadImageFormatException>(() => reader.GetExternalTypeMapEntries(section, group.InnerHandle));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -640,15 +640,14 @@ public sealed class SectionCoverage100_126Tests
         ProxyTypeMapGroup g = outerTable.Groups[0];
         Assert.Equal(new ImportFixupReference((ImportSectionIndex)5, (ImportCellIndex)6), g.GroupRef);
         Assert.Equal(1u, g.State);
+        Assert.True((uint)g.InnerHandle < (uint)section.Size);
 
-        IReadOnlyList<ProxyTypeMapEntry> innerEntries = reader.GetProxyTypeMapEntries(g.InnerHandle);
+        IReadOnlyList<ProxyTypeMapEntry> innerEntries = reader.GetProxyTypeMapEntries(section, g.InnerHandle);
 
         Assert.Single(innerEntries);
         ProxyTypeMapEntry e = innerEntries[0];
         Assert.Equal(new ImportFixupReference((ImportSectionIndex)1, (ImportCellIndex)2), e.KeyRef);
         Assert.Equal(new ImportFixupReference((ImportSectionIndex)3, (ImportCellIndex)4), e.ValueRef);
-        Assert.Throws<ArgumentException>(() => reader.GetProxyTypeMapEntries(
-            (ProxyTypeMapInnerHandle)((uint)g.InnerHandle + 1)));
     }
 
     [Fact]
@@ -669,7 +668,7 @@ public sealed class SectionCoverage100_126Tests
         Assert.Equal(0u, g.State);
         Assert.Equal(default, g.InnerHandle);
 
-        IReadOnlyList<ProxyTypeMapEntry> entries = reader.GetProxyTypeMapEntries(g.InnerHandle);
+        IReadOnlyList<ProxyTypeMapEntry> entries = reader.GetProxyTypeMapEntries(section, g.InnerHandle);
         Assert.Empty(entries);
     }
 

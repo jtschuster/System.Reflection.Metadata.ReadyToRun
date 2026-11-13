@@ -44,10 +44,8 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int offset = default;
                 if (debugInfoArray.TryGetAt(i, ref offset))
                 {
-                    RegisterDebugInfoRange(
-                        (DebugInfoOffset)(uint)offset,
-                        sectionOffset,
-                        sectionEndOffset);
+                    if (offset < sectionOffset || offset >= sectionEndOffset)
+                        throw new BadImageFormatException("Debug info entry offset is outside its containing section.");
                     entries.Add(new DebugInfoEntry((RuntimeFunctionIndex)i, (DebugInfoOffset)offset));
                 }
             }

@@ -84,8 +84,6 @@ public sealed class GCRefMapTable
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<(AuxiliaryDataTableRva Handle, int EntryCount), GCRefMapTable> _gcRefMapTableCache;
-
     /// <summary>
     /// Decode the GC reference map table at the given auxiliary data handle.
     /// </summary>
@@ -99,12 +97,6 @@ public partial class ReadyToRunReader
             throw new BadImageFormatException("GC reference map table contains a negative entry count.");
         if ((uint)handle == 0 || entryCount == 0)
             return null;
-
-        _gcRefMapTableCache ??= new Dictionary<(AuxiliaryDataTableRva, int), GCRefMapTable>();
-        var cacheKey = (handle, entryCount);
-
-        if (_gcRefMapTableCache.TryGetValue(cacheKey, out GCRefMapTable cached))
-            return cached;
 
         int strideCount;
         int lookupByteCount;
@@ -147,9 +139,7 @@ public partial class ReadyToRunReader
             entries[i] = DecodeGCRefMap(entryOffset, out _);
         }
 
-        var table = new GCRefMapTable(entries);
-        _gcRefMapTableCache[cacheKey] = table;
-        return table;
+        return new GCRefMapTable(entries);
     }
 
     private const int GCRefMapLookupStride = 1024;

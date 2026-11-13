@@ -75,6 +75,17 @@ namespace System.Reflection.Metadata.ReadyToRun.Tests
             Assert.Equal((byte)'Z', reader.ReadByte(offset));
         }
 
+        [Theory]
+        [InlineData(uint.MaxValue)]
+        [InlineData(0x10000u)]
+        public void ReadByte_OffsetOutsideImage_ThrowsBadImageFormat(uint offset)
+        {
+            byte[] image = WebcilImageBuilder.BuildRawWebcil(R2RMajorVersion, R2RMinorVersion, SampleSections());
+            using var reader = new ReadyToRunReader(image);
+
+            Assert.Throws<BadImageFormatException>(() => reader.ReadByte((ImageOffset)offset));
+        }
+
         [Fact]
         public void RawWebcil_ReportsWasmMachineAndPointerSize()
         {

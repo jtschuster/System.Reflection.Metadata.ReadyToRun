@@ -26,8 +26,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
-        private Dictionary<InlinerListOffset, int> _inlinerListEndOffsets;
-
         public InliningInfoTable GetInliningInfoTable(ReadyToRunSection section)
         {
             int startOffset = ValidateAndGetSectionOffset(
@@ -48,7 +46,6 @@ namespace System.Reflection.Metadata.ReadyToRun
             int inlineIndexEndOffset = offset + sizeOfInlineIndex;
 
             var entries = new List<InliningInfoEntry>();
-            _inlinerListEndOffsets ??= new Dictionary<InlinerListOffset, int>();
 
             while (offset < inlineIndexEndOffset)
             {
@@ -58,8 +55,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 if (inlinersOffset < inlineIndexEndOffset || inlinersOffset >= sectionEndOffset)
                     throw new BadImageFormatException("InliningInfo inliner-list offset is outside its section.");
 
-                var handle = (InlinerListOffset)(uint)inlinersOffset;
-                _inlinerListEndOffsets[handle] = sectionEndOffset;
+                var handle = (InlinerListOffset)(uint)inlinersRelativeOffset;
                 entries.Add(new InliningInfoEntry((MethodRid)inlineeRid, handle));
             }
 
@@ -69,20 +65,35 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>
         /// Decode the nibble-encoded inliner RID list referenced by <paramref name="handle"/>.
         /// </summary>
-        public IReadOnlyList<MethodRid> GetInliners(InlinerListOffset handle)
+        /// <param name="section">The InliningInfo section that <paramref name="handle"/> was read from.</param>
+        /// <param name="handle">The encoded offset of the list, relative to the end of the inlinee index.</param>
+        public IReadOnlyList<MethodRid> GetInliners(ReadyToRunSection section, InlinerListOffset handle)
         {
             EnsureSemanticDecodingSupported(nameof(GetInliners));
-            if (_inlinerListEndOffsets is null
-                || !_inlinerListEndOffsets.TryGetValue(handle, out int sectionEndOffset))
-            {
-                throw new ArgumentException(
-                    "The inliner-list handle was not created by this ReadyToRunReader.",
-                    nameof(handle));
-            }
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.InliningInfo,
+                nameof(GetInliners));
+            if (section.Size < sizeof(int))
+                throw new BadImageFormatException("InliningInfo section is missing its inlinee index size.");
 
-            var nibbleReader = new NibbleReader(_nativeReader, (int)(uint)handle, sectionEndOffset);
+            int offset = sectionOffset;
+            int sizeOfInlineIndex = _nativeReader.ReadInt32(ref offset);
+            if (sizeOfInlineIndex < 0 || sizeOfInlineIndex % (2 * sizeof(int)) != 0)
+                throw new BadImageFormatException("InliningInfo inlinee index has an invalid size.");
+
+            int sectionEndOffset = sectionOffset + section.Size;
+            if (sizeOfInlineIndex > sectionEndOffset - offset)
+                throw new BadImageFormatException("InliningInfo inlinee index extends beyond its section.");
+
+            int inlineIndexEndOffset = offset + sizeOfInlineIndex;
+            long listOffset = (long)inlineIndexEndOffset + (uint)handle;
+            if (listOffset < inlineIndexEndOffset || listOffset >= sectionEndOffset)
+                throw new BadImageFormatException("InliningInfo inliner-list offset is outside its section.");
+
+            var nibbleReader = new NibbleReader(_nativeReader, (int)listOffset, sectionEndOffset);
             uint sameModuleCount = nibbleReader.ReadUInt();
-            long availableNibbleCount = ((long)sectionEndOffset - (uint)handle) * 2;
+            long availableNibbleCount = ((long)sectionEndOffset - listOffset) * 2;
             if (sameModuleCount > availableNibbleCount)
                 throw new BadImageFormatException("InliningInfo inliner count exceeds the containing nibble stream.");
 
@@ -111,7 +122,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>MethodDef RID of the inlinee.</summary>
         public MethodRid InlineeRid { get; }
 
-        /// <summary>Handle to the nibble-encoded inliner RID list. Resolve with <see cref="ReadyToRunReader.GetInliners"/>.</summary>
+        /// <summary>
+        /// Encoded offset of the nibble-encoded inliner RID list, relative to the end of the inlinee index.
+        /// Resolve with <see cref="ReadyToRunReader.GetInliners"/> and the same InliningInfo section.
+        /// </summary>
         public InlinerListOffset InlinersOffset { get; }
 
         internal InliningInfoEntry(MethodRid inlineeRid, InlinerListOffset inlinersOffset)
@@ -123,6 +137,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     /// <summary>
     /// Opaque handle to a nibble-encoded inliner RID list in the v1 InliningInfo section.
-    /// The underlying value is the absolute file offset of the nibble stream.
+    /// The underlying value is the encoded offset from the end of the inlinee index.
     /// </summary>
 }

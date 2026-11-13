@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 
 
 namespace System.Reflection.Metadata.ReadyToRun
@@ -30,9 +29,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
-        private Dictionary<int, (int StartOffset, int EndOffset)> _payloadRanges;
-        private Dictionary<FixupCellListHandle, (int StartOffset, int EndOffset)> _fixupCellListRanges;
-
         /// <summary>
         /// Open the InstanceMethodEntryPoints section as an inert table that can be used for
         /// keyed lookups or full enumeration without eagerly decoding every entry.
@@ -96,9 +92,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             while (!entryParser.IsNull())
             {
                 int payloadOffset = (int)entryParser.Offset;
-                RegisterPayloadRange(payloadOffset, sectionOffset, sectionEndOffset);
+                EnsureOffsetWithinRange(payloadOffset, sectionOffset, sectionEndOffset);
                 R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
-                EnsurePayloadOffsetWithinRange(signature.EndOffset, payloadOffset, allowEndOffset: false);
+                EnsureOffsetWithinRange(signature.EndOffset, sectionOffset, sectionEndOffset);
                 MethodSignature methodSig = MethodSignature.FromSignature(signature.Signature);
                 if (predicate(methodSig))
                 {
@@ -115,7 +111,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>
         /// Lazily enumerate every entry in the InstanceMethodEntryPoints hashtable. Each yielded
         /// <see cref="InstanceMethodEntry"/> carries only a payload offset and a low hashcode byte;
-        /// call <see cref="GetInstanceMethodPayload(InstanceMethodEntry)"/> to decode the signature
+        /// call <see cref="GetInstanceMethodPayload(InstanceMethodEntryPointsTable, InstanceMethodEntry)"/> to decode the signature
         /// and entry-point data on demand.
         /// </summary>
         public IEnumerable<InstanceMethodEntry> EnumerateInstanceMethodEntries(InstanceMethodEntryPointsTable table)
@@ -129,7 +125,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             for (NativeParser curParser = enumerator.GetNext(); !curParser.IsNull(); curParser = enumerator.GetNext())
             {
-                RegisterPayloadRange((int)curParser.Offset, sectionOffset, sectionEndOffset);
+                EnsureOffsetWithinRange((int)curParser.Offset, sectionOffset, sectionEndOffset);
                 yield return new InstanceMethodEntry((InstanceMethodPayloadOffset)curParser.Offset, curParser.LowHashcode);
             }
         }
@@ -139,26 +135,32 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// followed by the inline runtime-function-index and optional fixup-list handle. The payload
         /// layout is method-signature || DecodeUnsigned(id) || optional back-reference.
         /// </summary>
-        public InstanceMethodPayload GetInstanceMethodPayload(InstanceMethodEntry entry)
-            => GetInstanceMethodPayload(entry, SignatureDecodingOptions);
+        public InstanceMethodPayload GetInstanceMethodPayload(
+            InstanceMethodEntryPointsTable table,
+            InstanceMethodEntry entry)
+            => GetInstanceMethodPayload(table, entry, SignatureDecodingOptions);
 
         /// <summary>
         /// Fully parse an <see cref="InstanceMethodEntry"/> using explicit ReadyToRun version/policy settings.
         /// </summary>
-        public InstanceMethodPayload GetInstanceMethodPayload(InstanceMethodEntry entry, IReadyToRunSignatureDecodingOptions options)
+        public InstanceMethodPayload GetInstanceMethodPayload(
+            InstanceMethodEntryPointsTable table,
+            InstanceMethodEntry entry,
+            IReadyToRunSignatureDecodingOptions options)
         {
             EnsureSemanticDecodingSupported(nameof(GetInstanceMethodPayload));
+            ArgumentNullException.ThrowIfNull(table);
             ArgumentNullException.ThrowIfNull(entry);
             ArgumentNullException.ThrowIfNull(options);
 
+            _ = OpenInstanceMethodEntryPointsHashtable(table, out int sectionOffset, out int sectionEndOffset);
             int payloadOffset = (int)entry.PayloadOffset;
-            (int sectionOffset, int sectionEndOffset) = GetPayloadRange(payloadOffset, nameof(entry));
+            EnsureOffsetWithinRange(payloadOffset, sectionOffset, sectionEndOffset);
             R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
-            EnsurePayloadOffsetWithinRange(signature.EndOffset, payloadOffset, allowEndOffset: false);
+            EnsureOffsetWithinRange(signature.EndOffset, sectionOffset, sectionEndOffset);
 
-            int offset = signature.EndOffset;
             (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) =
-                DecodeRuntimeFunctionIdAndFixupCellList(offset, sectionOffset, sectionEndOffset);
+                DecodeRuntimeFunctionIdAndFixupCellList(signature.EndOffset, sectionOffset, sectionEndOffset);
             return new InstanceMethodPayload(signature.Signature, runtimeFunctionIndex, fixupCellListHandle);
         }
 
@@ -175,6 +177,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 _nativeReader,
                 (uint)offset,
                 (uint)containingEndOffset);
+            int encodedIdOffset = offset;
             uint id = parser.GetUnsigned();
             offset = (int)parser.Offset;
 
@@ -183,21 +186,15 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             if ((id & 1) != 0)
             {
-                uint? backReferenceDelta = null;
-                int fixupOffset = offset;
-
                 if ((id & 2) != 0)
                 {
                     uint delta = parser.GetUnsigned();
-                    backReferenceDelta = delta;
-                    if (delta > (uint)(offset - containingStartOffset))
+                    if (delta > parser.Offset - (uint)containingStartOffset)
                         throw new BadImageFormatException("Fixup-cell list back-reference points outside its containing section.");
-                    fixupOffset = offset - (int)delta;
                 }
 
-                fixupCells = new FixupCellListHandle(fixupOffset, backReferenceDelta);
-                _fixupCellListRanges ??= new Dictionary<FixupCellListHandle, (int, int)>();
-                _fixupCellListRanges[fixupCells.Value] = (containingStartOffset, containingEndOffset);
+                fixupCells = new FixupCellListHandle(
+                    (FixupCellListOffset)(uint)(encodedIdOffset - containingStartOffset));
                 runtimeFunctionIndex = (RuntimeFunctionIndex)(id >> 2);
             }
             else
@@ -211,23 +208,50 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>
         /// Decodes the nibble-encoded fixup cell list referenced by a method entry payload.
         /// </summary>
-        public IReadOnlyList<FixupCellRef> GetFixupCells(FixupCellListHandle fixupCellList)
+        public IReadOnlyList<FixupCellRef> GetFixupCells(
+            ReadyToRunSection section,
+            FixupCellListHandle fixupCellList)
         {
             EnsureSemanticDecodingSupported(nameof(GetFixupCells));
-            if (_fixupCellListRanges is null
-                || !_fixupCellListRanges.TryGetValue(fixupCellList, out var range))
+            int sectionOffset = section.Type switch
             {
-                throw new ArgumentException(
-                    "The fixup-cell list handle was not created by this ReadyToRunReader.",
-                    nameof(fixupCellList));
+                Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints => ValidateAndGetSectionOffset(
+                    section,
+                    Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints,
+                    nameof(GetFixupCells)),
+                Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints => ValidateAndGetSectionOffset(
+                    section,
+                    Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints,
+                    nameof(GetFixupCells)),
+                _ => throw new ArgumentException("Section must contain method entry points.", nameof(section)),
+            };
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)fixupCellList.Offset >= (uint)section.Size)
+                throw new BadImageFormatException("Fixup-list reference offset is outside its section.");
+
+            var parser = new NativeParser(
+                _nativeReader,
+                checked((uint)(sectionOffset + (int)(uint)fixupCellList.Offset)),
+                (uint)sectionEndOffset);
+            uint id = parser.GetUnsigned();
+            if ((id & 1) == 0)
+                throw new BadImageFormatException("Entry-point payload does not contain a fixup list.");
+
+            int fixupOffset = (int)parser.Offset;
+            if ((id & 2) != 0)
+            {
+                uint delta = parser.GetUnsigned();
+                if (delta > parser.Offset - (uint)sectionOffset)
+                    throw new BadImageFormatException("Fixup-cell list back-reference points outside its containing section.");
+                fixupOffset = checked((int)(parser.Offset - delta));
             }
 
             var fixupCells = new List<FixupCellRef>();
 
             NibbleReader nibbleReader = new NibbleReader(
                 _nativeReader,
-                fixupCellList.Offset,
-                range.EndOffset);
+                fixupOffset,
+                sectionEndOffset);
             uint curTableIndex = nibbleReader.ReadUInt();
 
             while (true)
@@ -259,34 +283,10 @@ namespace System.Reflection.Metadata.ReadyToRun
             return fixupCells;
         }
 
-        private void RegisterPayloadRange(int payloadOffset, int startOffset, int endOffset)
+        private static void EnsureOffsetWithinRange(int offset, int startOffset, int endOffset)
         {
-            if (payloadOffset < startOffset || payloadOffset >= endOffset)
-                throw new BadImageFormatException("Payload offset is outside its containing section.");
-
-            _payloadRanges ??= new Dictionary<int, (int, int)>();
-            _payloadRanges[payloadOffset] = (startOffset, endOffset);
-        }
-
-        private (int StartOffset, int EndOffset) GetPayloadRange(int payloadOffset, string parameterName)
-        {
-            if (_payloadRanges is null || !_payloadRanges.TryGetValue(payloadOffset, out var range))
-            {
-                throw new ArgumentException(
-                    "The payload handle was not created by this ReadyToRunReader.",
-                    parameterName);
-            }
-
-            return range;
-        }
-
-        private void EnsurePayloadOffsetWithinRange(int offset, int payloadOffset, bool allowEndOffset)
-        {
-            (int startOffset, int endOffset) = GetPayloadRange(payloadOffset, nameof(payloadOffset));
-            bool valid = offset >= startOffset
-                && (allowEndOffset ? offset <= endOffset : offset < endOffset);
-            if (!valid)
-                throw new BadImageFormatException("Payload extends beyond its containing section.");
+            if (offset < startOffset || offset >= endOffset)
+                throw new BadImageFormatException("Payload extends beyond its containing range.");
         }
     }
 
@@ -312,26 +312,17 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public readonly struct FixupCellListHandle
     {
-        internal int Offset { get; }
+        /// <summary>Offset of the encoded reference, relative to its entry-point section.</summary>
+        public FixupCellListOffset Offset { get; }
 
-        /// <summary>Encoded back-reference delta when <see cref="IsBackReference"/> is true; otherwise null.</summary>
-        internal uint? BackReferenceDelta { get; }
-
-        /// <summary>True when the method payload stores a delta to a previous fixup list instead of an inline list.</summary>
-        [MemberNotNullWhen(true, nameof(BackReferenceDelta))]
-        internal bool IsBackReference => BackReferenceDelta.HasValue;
-
-        internal FixupCellListHandle(int offset, uint? backReferenceDelta)
-        {
-            Offset = offset;
-            BackReferenceDelta = backReferenceDelta;
-        }
+        internal FixupCellListHandle(FixupCellListOffset offset) => Offset = offset;
     }
 
     /// <summary>
     /// Opaque handle to the start of an <see cref="InstanceMethodEntry"/> payload
     /// (a method signature blob immediately followed by entry-point and fixup data).
-    /// Pass to <see cref="ReadyToRunReader.GetInstanceMethodPayload(InstanceMethodEntry)"/> to decode.
+    /// Pass with its <see cref="InstanceMethodEntryPointsTable"/> to
+    /// <see cref="ReadyToRunReader.GetInstanceMethodPayload(InstanceMethodEntryPointsTable, InstanceMethodEntry)"/> to decode.
     /// The underlying value is the file offset (not RVA) of the payload start.
     /// </summary>
 

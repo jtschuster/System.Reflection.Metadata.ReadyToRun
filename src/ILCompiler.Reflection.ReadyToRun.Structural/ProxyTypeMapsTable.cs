@@ -85,7 +85,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
-        private Dictionary<ProxyTypeMapInnerHandle, (int StartOffset, int EndOffset, uint State)> _proxyTypeMapRanges;
 
         /// <summary>
         /// Parses the ProxyTypeMaps section as an outer NativeHashtable of type-map groups.
@@ -117,8 +116,9 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                 if (state is 1 or 2)
                 {
-                    innerHandle = (ProxyTypeMapInnerHandle)curParser.Offset;
-                    RegisterProxyTypeMapRange(innerHandle, sectionOffset, sectionEndOffset, state);
+                    if (curParser.Offset < (uint)sectionOffset || curParser.Offset >= (uint)sectionEndOffset)
+                        throw new BadImageFormatException("Proxy type-map inner table starts outside its containing section.");
+                    innerHandle = (ProxyTypeMapInnerHandle)(curParser.Offset - (uint)sectionOffset);
                 }
 
                 groups.Add(new ProxyTypeMapGroup(groupRef, state, innerHandle));
@@ -132,16 +132,26 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Enumerates the inner entries of a ProxyTypeMaps group referenced by
         /// <paramref name="handle"/>. Each entry maps a key type reference to a value type reference.
         /// </summary>
-        /// <param name="handle">The inner handle from <see cref="ProxyTypeMapGroup.InnerHandle"/>.</param>
+        /// <param name="section">The ProxyTypeMaps section that contains the inner table.</param>
+        /// <param name="handle">The section-relative inner handle from <see cref="ProxyTypeMapGroup.InnerHandle"/>.</param>
         public IReadOnlyList<ProxyTypeMapEntry> GetProxyTypeMapEntries(
+            ReadyToRunSection section,
             ProxyTypeMapInnerHandle handle)
         {
             EnsureSemanticDecodingSupported(nameof(GetProxyTypeMapEntries));
             if (handle == default)
                 return Array.Empty<ProxyTypeMapEntry>();
 
-            (int _, int sectionEndOffset, uint _) = GetProxyTypeMapRange(handle);
-            NativeParser innerParser = new NativeParser(_nativeReader, (uint)handle);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ProxyTypeMaps,
+                nameof(GetProxyTypeMapEntries));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)handle >= (uint)section.Size)
+                throw new BadImageFormatException("Proxy type-map inner-table offset is outside its section.");
+
+            uint innerOffset = checked((uint)(sectionOffset + (int)(uint)handle));
+            NativeParser innerParser = new NativeParser(_nativeReader, innerOffset);
             NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = innerHashtable.EnumerateAllEntries();
 
@@ -168,43 +178,30 @@ namespace System.Reflection.Metadata.ReadyToRun
             return entries;
         }
 
-        /// <summary>Reads serialized source and proxy names appended to a version 28 or later type map.</summary>
-        public IReadOnlyList<TypeMapNamedEntry> GetProxyTypeMapNamedEntries(ProxyTypeMapInnerHandle handle)
+        /// <summary>
+        /// Reads the serialized name pairs appended after the inner hashtable of a version 28 or later type-map group.
+        /// </summary>
+        /// <param name="group">A group from <see cref="ProxyTypeMapsTable.Groups"/>.</param>
+        /// <returns>The named entries, or an empty list when <see cref="ProxyTypeMapGroup.State"/> is not 2.</returns>
+        public IReadOnlyList<TypeMapNamedEntry> GetProxyTypeMapNamedEntries(
+            ReadyToRunSection section,
+            ProxyTypeMapGroup group)
         {
             EnsureSemanticDecodingSupported(nameof(GetProxyTypeMapNamedEntries));
-            if (handle == default)
-                return Array.Empty<TypeMapNamedEntry>();
-            var range = GetProxyTypeMapRange(handle);
-            return range.State == 2
-                ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset)
+            ArgumentNullException.ThrowIfNull(group);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ProxyTypeMaps,
+                nameof(GetProxyTypeMapNamedEntries));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)group.InnerHandle >= (uint)section.Size)
+                throw new BadImageFormatException("Proxy type-map inner-table offset is outside its section.");
+
+            return group.State == 2
+                ? ReadTypeMapNamedEntries(
+                    checked((uint)(sectionOffset + (int)(uint)group.InnerHandle)),
+                    sectionEndOffset)
                 : Array.Empty<TypeMapNamedEntry>();
-        }
-
-        private void RegisterProxyTypeMapRange(
-            ProxyTypeMapInnerHandle handle,
-            int sectionStartOffset,
-            int sectionEndOffset,
-            uint state)
-        {
-            uint rawOffset = (uint)handle;
-            if (rawOffset < sectionStartOffset || rawOffset >= sectionEndOffset)
-                throw new BadImageFormatException("Proxy type-map inner table starts outside its containing section.");
-
-            _proxyTypeMapRanges ??= new Dictionary<ProxyTypeMapInnerHandle, (int, int, uint)>();
-            _proxyTypeMapRanges[handle] = (sectionStartOffset, sectionEndOffset, state);
-        }
-
-        private (int StartOffset, int EndOffset, uint State) GetProxyTypeMapRange(ProxyTypeMapInnerHandle handle)
-        {
-            if (_proxyTypeMapRanges is null
-                || !_proxyTypeMapRanges.TryGetValue(handle, out var range))
-            {
-                throw new ArgumentException(
-                    "The proxy type-map handle was not created by this ReadyToRunReader.",
-                    nameof(handle));
-            }
-
-            return range;
         }
     }
 }

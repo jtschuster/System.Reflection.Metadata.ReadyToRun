@@ -72,9 +72,20 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     public void MethodDefEntryPoints_Enumerate()
     {
         using ReaderScope scope = _image.OpenReader();
-        MethodDefEntryPointsTable table = scope.Reader.GetMethodDefEntryPointsTable(Section(scope.Reader, ReadyToRunSectionType.MethodDefEntryPoints));
+        ReadyToRunSection section = Section(scope.Reader, ReadyToRunSectionType.MethodDefEntryPoints);
+        MethodDefEntryPointsTable table = scope.Reader.GetMethodDefEntryPointsTable(section);
 
-        int count = scope.Reader.EnumerateMethodDefEntryPoints(table).Count();
+        int count = 0;
+        foreach (var item in scope.Reader.EnumerateMethodDefEntryPoints(table))
+        {
+            MethodDefEntry entry = item.Entry;
+            if (entry.FixupCellListHandle is FixupCellListHandle fixupCellList)
+            {
+                Assert.True((uint)fixupCellList.Offset < (uint)section.Size);
+                scope.Reader.GetFixupCells(section, fixupCellList);
+            }
+            count++;
+        }
         Assert.True(count >= 1, "Expected at least one MethodDef entry point.");
     }
 
@@ -262,11 +273,17 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
 
     private List<DecodedInstanceMethod> DecodeAllInstanceMethods(ReadyToRunReader reader)
     {
-        InstanceMethodEntryPointsTable table = reader.GetInstanceMethodEntryPointsTable(InstanceMethodSection(reader));
+        ReadyToRunSection section = InstanceMethodSection(reader);
+        InstanceMethodEntryPointsTable table = reader.GetInstanceMethodEntryPointsTable(section);
         var result = new List<DecodedInstanceMethod>();
         foreach (InstanceMethodEntry entry in reader.EnumerateInstanceMethodEntries(table))
         {
-            InstanceMethodPayload payload = reader.GetInstanceMethodPayload(entry);
+            InstanceMethodPayload payload = reader.GetInstanceMethodPayload(table, entry);
+            if (payload.FixupCellListHandle is FixupCellListHandle fixupCellList)
+            {
+                Assert.True((uint)fixupCellList.Offset < (uint)section.Size);
+                reader.GetFixupCells(section, fixupCellList);
+            }
             MethodSignature signature = MethodSignature.FromSignature(payload.MethodSignature);
             result.Add(new DecodedInstanceMethod(entry, entry.LowHashcode, signature, signature.ToString(), (int)payload.EntryPointIndex));
         }

@@ -120,8 +120,6 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <exception cref="BadImageFormatException">The signature must be 0x00525452 ("RTR")</exception>
         public ReadyToRunHeader ReadReadyToRunHeader(ImageOffset imageOffset)
         {
-            if ((uint)imageOffset > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(imageOffset), "Image offset exceeds the supported reader range.");
             int currentOffset = (int)imageOffset;
             try
             {
@@ -158,8 +156,6 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public ReadyToRunCoreHeader ReadReadyToRunCoreHeader(ref ImageOffset imageOffset)
         {
-            if ((uint)imageOffset > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(imageOffset), "Image offset exceeds the supported reader range.");
             int currentOffset = (int)imageOffset;
             ReadyToRunCoreHeader header = ReadReadyToRunCoreHeader(ref currentOffset, FormatProfile);
             imageOffset = (ImageOffset)currentOffset;

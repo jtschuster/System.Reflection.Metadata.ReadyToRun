@@ -35,8 +35,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
-        private Dictionary<int, uint> _nativeArrayEndOffsets;
-
         public MethodDefEntryPointsTable GetMethodDefEntryPointsTable(ReadyToRunSection section)
         {
             int sectionOffset = ValidateAndGetSectionOffset(
@@ -50,9 +48,6 @@ namespace System.Reflection.Metadata.ReadyToRun
                 throw new BadImageFormatException("MethodDefEntryPoints count exceeds the supported range.");
 
             var entries = new NativeArrayHandle(sectionOffset, (int)encodedCount);
-            _nativeArrayEndOffsets ??= new Dictionary<int, uint>();
-            _nativeArrayEndOffsets[sectionOffset] = sectionEndOffset;
-
             return new MethodDefEntryPointsTable(entries);
         }
 
@@ -89,24 +84,12 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
 
         private NativeArray GetNativeArray(NativeArrayHandle handle)
-        {
-            if (_nativeArrayEndOffsets is null
-                || !_nativeArrayEndOffsets.TryGetValue(handle.Offset, out uint endOffset))
-            {
-                throw new ArgumentException(
-                    "The NativeArray handle was not created by this ReadyToRunReader.",
-                    nameof(handle));
-            }
-
-            return new NativeArray(_nativeReader, (uint)handle.Offset, endOffset);
-        }
+            => new NativeArray(_nativeReader, (uint)handle.Offset, (uint)ImageEndOffset);
 
         private MethodDefEntry DecodeMethodDefEntryPoint(int offset, NativeArrayHandle handle)
         {
-            uint endOffset = _nativeArrayEndOffsets[handle.Offset];
-            RegisterPayloadRange(offset, handle.Offset, (int)endOffset);
             (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) =
-                DecodeRuntimeFunctionIdAndFixupCellList(offset, handle.Offset, (int)endOffset);
+                DecodeRuntimeFunctionIdAndFixupCellList(offset, handle.Offset, ImageEndOffset);
             return new MethodDefEntry(runtimeFunctionIndex, fixupCellListHandle);
         }
     }
@@ -119,7 +102,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Index into the RuntimeFunctions array.</summary>
         public RuntimeFunctionIndex EntryPointIndex { get; }
 
-        /// <summary>Handle to fixup cells this method needs resolved before execution.</summary>
+        /// <summary>Handle to the encoded fixup-list reference for this method.</summary>
         public FixupCellListHandle? FixupCellListHandle { get; }
 
         internal MethodDefEntry(RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)

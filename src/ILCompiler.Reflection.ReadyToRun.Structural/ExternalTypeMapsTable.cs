@@ -89,7 +89,6 @@ namespace System.Reflection.Metadata.ReadyToRun
         private static readonly UTF8Encoding s_strictUtf8 = new(
             encoderShouldEmitUTF8Identifier: false,
             throwOnInvalidBytes: true);
-        private Dictionary<ExternalTypeMapInnerHandle, (int StartOffset, int EndOffset, uint State)> _externalTypeMapRanges;
 
         /// <summary>
         /// Parses the ExternalTypeMaps section as an outer NativeHashtable of type-map groups.
@@ -121,8 +120,9 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                 if (state is 1 or 2)
                 {
-                    innerHandle = (ExternalTypeMapInnerHandle)curParser.Offset;
-                    RegisterExternalTypeMapRange(innerHandle, sectionOffset, sectionEndOffset, state);
+                    if (curParser.Offset < (uint)sectionOffset || curParser.Offset >= (uint)sectionEndOffset)
+                        throw new BadImageFormatException("External type-map inner table starts outside its containing section.");
+                    innerHandle = (ExternalTypeMapInnerHandle)(curParser.Offset - (uint)sectionOffset);
                 }
 
                 groups.Add(new ExternalTypeMapGroup(groupRef, state, innerHandle));
@@ -136,16 +136,26 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Enumerates the inner entries of an ExternalTypeMaps group referenced by
         /// <paramref name="handle"/>. Each entry is a UTF-8 key to result-type reference mapping.
         /// </summary>
-        /// <param name="handle">The inner handle from <see cref="ExternalTypeMapGroup.InnerHandle"/>.</param>
+        /// <param name="section">The ExternalTypeMaps section that contains the inner table.</param>
+        /// <param name="handle">The section-relative inner handle from <see cref="ExternalTypeMapGroup.InnerHandle"/>.</param>
         public IReadOnlyList<ExternalTypeMapEntry> GetExternalTypeMapEntries(
+            ReadyToRunSection section,
             ExternalTypeMapInnerHandle handle)
         {
             EnsureSemanticDecodingSupported(nameof(GetExternalTypeMapEntries));
             if (handle == default)
                 return Array.Empty<ExternalTypeMapEntry>();
 
-            (int _, int sectionEndOffset, uint _) = GetExternalTypeMapRange(handle);
-            NativeParser innerParser = new NativeParser(_nativeReader, (uint)handle);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ExternalTypeMaps,
+                nameof(GetExternalTypeMapEntries));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)handle >= (uint)section.Size)
+                throw new BadImageFormatException("External type-map inner-table offset is outside its section.");
+
+            uint innerOffset = checked((uint)(sectionOffset + (int)(uint)handle));
+            NativeParser innerParser = new NativeParser(_nativeReader, innerOffset);
             NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = innerHashtable.EnumerateAllEntries();
 
@@ -185,43 +195,31 @@ namespace System.Reflection.Metadata.ReadyToRun
             return entries;
         }
 
-        /// <summary>Reads serialized name pairs appended to a version 28 or later type map.</summary>
-        public IReadOnlyList<TypeMapNamedEntry> GetExternalTypeMapNamedEntries(ExternalTypeMapInnerHandle handle)
+        /// <summary>
+        /// Reads the serialized name pairs appended after the inner hashtable of a version 28 or later type-map group.
+        /// </summary>
+        /// <param name="section">The ExternalTypeMaps section containing <paramref name="group"/>.</param>
+        /// <param name="group">A group from <see cref="ExternalTypeMapsTable.Groups"/>.</param>
+        /// <returns>The named entries, or an empty list when <see cref="ExternalTypeMapGroup.State"/> is not 2.</returns>
+        public IReadOnlyList<TypeMapNamedEntry> GetExternalTypeMapNamedEntries(
+            ReadyToRunSection section,
+            ExternalTypeMapGroup group)
         {
             EnsureSemanticDecodingSupported(nameof(GetExternalTypeMapNamedEntries));
-            if (handle == default)
-                return Array.Empty<TypeMapNamedEntry>();
-            var range = GetExternalTypeMapRange(handle);
-            return range.State == 2
-                ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset)
+            ArgumentNullException.ThrowIfNull(group);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ExternalTypeMaps,
+                nameof(GetExternalTypeMapNamedEntries));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)group.InnerHandle >= (uint)section.Size)
+                throw new BadImageFormatException("External type-map inner-table offset is outside its section.");
+
+            return group.State == 2
+                ? ReadTypeMapNamedEntries(
+                    checked((uint)(sectionOffset + (int)(uint)group.InnerHandle)),
+                    sectionEndOffset)
                 : Array.Empty<TypeMapNamedEntry>();
-        }
-
-        private void RegisterExternalTypeMapRange(
-            ExternalTypeMapInnerHandle handle,
-            int sectionStartOffset,
-            int sectionEndOffset,
-            uint state)
-        {
-            uint rawOffset = (uint)handle;
-            if (rawOffset < sectionStartOffset || rawOffset >= sectionEndOffset)
-                throw new BadImageFormatException("External type-map inner table starts outside its containing section.");
-
-            _externalTypeMapRanges ??= new Dictionary<ExternalTypeMapInnerHandle, (int, int, uint)>();
-            _externalTypeMapRanges[handle] = (sectionStartOffset, sectionEndOffset, state);
-        }
-
-        private (int StartOffset, int EndOffset, uint State) GetExternalTypeMapRange(ExternalTypeMapInnerHandle handle)
-        {
-            if (_externalTypeMapRanges is null
-                || !_externalTypeMapRanges.TryGetValue(handle, out var range))
-            {
-                throw new ArgumentException(
-                    "The external type-map handle was not created by this ReadyToRunReader.",
-                    nameof(handle));
-            }
-
-            return range;
         }
     }
 }

@@ -31,11 +31,6 @@ namespace System.Reflection.Metadata.ReadyToRun
         private readonly ReadyToRunReaderOptions _options;
         private readonly PinnedImage _pinnedImage;
 
-        // Lazy-init backing fields
-        private ReadyToRunHeader _header;
-        private ReadyToRunFormatProfile _formatProfile;
-        private bool? _isComposite;
-
         internal ReadyToRunReader(
             IPlatformBinaryReader platformBinaryReader,
             NativeReader nativeReader,
@@ -165,11 +160,13 @@ namespace System.Reflection.Metadata.ReadyToRun
         {
             get
             {
-                if (_formatProfile is null)
-                    GetHeader();
-                return _formatProfile;
+                ReadyToRunHeader header = GetHeader();
+                return ReadyToRunFormatProfile.Create(header.MajorVersion, header.MinorVersion);
             }
         }
+
+        /// <summary>Exclusive end offset of the image, used to bound decoders that start from a handle.</summary>
+        internal int ImageEndOffset => _nativeReader.Length > int.MaxValue ? int.MaxValue : (int)_nativeReader.Length;
 
         internal ReadyToRunSignatureDecodingOptions SignatureDecodingOptions
         {
@@ -226,14 +223,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         {
             get
             {
-                if (_isComposite.HasValue)
-                    return _isComposite.Value;
-
                 if (!_platformBinaryReader.TryGetReadyToRunHeader(out _, out bool isComposite))
                     throw new BadImageFormatException("Image is not a ReadyToRunImage");
-                _isComposite = isComposite;
 
-                return _isComposite.Value;
+                return isComposite;
             }
         }
 
@@ -252,22 +245,15 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Reads one raw byte at the specified image file offset.</summary>
         public byte ReadByte(ImageOffset offset)
         {
-            int currentOffset = GetImageOffset(offset);
+            int currentOffset = (int)offset;
             return _nativeReader.ReadByte(ref currentOffset);
         }
 
         /// <summary>Copies raw image bytes beginning at the specified file offset.</summary>
         public void ReadBytes(ImageOffset offset, Span<byte> destination)
         {
-            int currentOffset = GetImageOffset(offset);
+            int currentOffset = (int)offset;
             _nativeReader.ReadSpanAt(ref currentOffset, destination);
-        }
-
-        private static int GetImageOffset(ImageOffset offset)
-        {
-            if ((uint)offset > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(offset), "Image offset exceeds the supported reader range.");
-            return (int)offset;
         }
 
         /// <summary>
@@ -277,17 +263,10 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         public ReadyToRunHeader GetHeader()
         {
-            if (_header is not null)
-                return _header;
-
-            if (!_platformBinaryReader.TryGetReadyToRunHeader(out ImageRVA headerRva, out bool isComposite))
+            if (!_platformBinaryReader.TryGetReadyToRunHeader(out ImageRVA headerRva, out _))
                 throw new BadImageFormatException("Not a ReadyToRun image");
 
-            _isComposite = isComposite;
-            ImageOffset headerOffset = GetOffsetForRVA(headerRva);
-            _header = ReadReadyToRunHeader(headerOffset);
-            _formatProfile = ReadyToRunFormatProfile.Create(_header.MajorVersion, _header.MinorVersion);
-            return _header;
+            return ReadReadyToRunHeader(GetOffsetForRVA(headerRva));
         }
 
         /// <summary>
@@ -513,8 +492,6 @@ namespace System.Reflection.Metadata.ReadyToRun
             EnsureSemanticDecodingSupported(nameof(GetRuntimeFunctionIndexFromOffset));
             fixupOffset = null;
 
-            if ((uint)offset > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(offset), "Image offset exceeds the supported reader range.");
             int currentOffset = (int)offset;
             uint id = 0;
             currentOffset = (int)_nativeReader.DecodeUnsigned((uint)currentOffset, ref id);
