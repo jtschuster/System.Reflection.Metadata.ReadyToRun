@@ -23,8 +23,6 @@ public sealed class SignatureTable
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<(SignatureTableRva Handle, int EntryCount), SignatureTable> _signatureTableCache;
-
     /// <summary>
     /// Decode a signature indirection table into per-slot <see cref="SignatureRva"/> values.
     /// </summary>
@@ -38,12 +36,6 @@ public partial class ReadyToRunReader
             throw new BadImageFormatException("Signature table contains a negative entry count.");
         if ((uint)handle == 0 || entryCount == 0)
             return null;
-
-        _signatureTableCache ??= new Dictionary<(SignatureTableRva, int), SignatureTable>();
-        var cacheKey = (handle, entryCount);
-
-        if (_signatureTableCache.TryGetValue(cacheKey, out SignatureTable cached))
-            return cached;
 
         int byteCount;
         try
@@ -65,8 +57,6 @@ public partial class ReadyToRunReader
             entries[i] = (SignatureRva)sigRva;
         }
 
-        var table = new SignatureTable(entries);
-        _signatureTableCache[cacheKey] = table;
-        return table;
+        return new SignatureTable(entries);
     }
 }

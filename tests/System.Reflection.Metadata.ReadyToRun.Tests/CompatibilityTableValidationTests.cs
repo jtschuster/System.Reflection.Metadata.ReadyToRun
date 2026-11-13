@@ -271,6 +271,33 @@ public sealed class CompatibilityTableValidationTests
     }
 
     [Fact]
+    public void GetInliners_DecodesSectionRelativeOffsetWithoutParsingTable()
+    {
+        byte[] content = Combine(
+            Int32Bytes(2 * sizeof(int)),
+            Int32Bytes(5),
+            Int32Bytes(0),
+            [0x32, 0x04]); // Nibbles: count 2, deltas 3 and 4.
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.InliningInfo, content);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+
+        IReadOnlyList<MethodRid> inliners = reader.GetInliners(section, (InlinerListOffset)12u);
+
+        Assert.Equal([(MethodRid)3, (MethodRid)7], inliners);
+        Assert.Equal((InlinerListOffset)12u, Assert.Single(reader.GetInliningInfoTable(section).Entries).InlinersOffset);
+    }
+
+    [Fact]
+    public void GetInliners_OffsetOutsideSection_ThrowsBadImageFormat()
+    {
+        byte[] content = Combine(Int32Bytes(2 * sizeof(int)), Int32Bytes(5), Int32Bytes(0), [0x32, 0x04]);
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.InliningInfo, content);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+
+        Assert.Throws<BadImageFormatException>(() => reader.GetInliners(section, (InlinerListOffset)(uint)section.Size));
+    }
+
+    [Fact]
     public void InliningInfo_RejectsCountLargerThanNibbleStream()
     {
         byte[] encodedIntMaxValue = [0xF9, 0xFF, 0xFF, 0xFF, 0xFF, 0x07];
@@ -284,37 +311,10 @@ public sealed class CompatibilityTableValidationTests
             0,
             ReadyToRunSectionType.InliningInfo,
             content);
-        InliningInfoEntry entry = Assert.Single(
-            reader.GetInliningInfoTable(Assert.Single(reader.GetSections())).Entries);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+        InliningInfoEntry entry = Assert.Single(reader.GetInliningInfoTable(section).Entries);
 
-        Assert.Throws<BadImageFormatException>(() => reader.GetInliners(entry.InlinersOffset));
-    }
-
-    [Fact]
-    public void DebugInfoPayload_CannotConsumeBytesPastItsSection()
-    {
-        byte[] debugInfoSection =
-        [
-            0x08, // NativeArray: one element, one-byte block index
-            0x01, // First tree node is one byte after the index base
-            0x02, 0x02, 0x02, 0x02, // Four left branches to element zero
-            0x00, // Inline debug-info marker with no remaining payload bytes
-        ];
-        byte[] image = WebcilImageBuilder.BuildRawWebcil(
-            24,
-            0,
-            [
-                new WebcilImageBuilder.R2RSectionSpec(ReadyToRunSectionType.DebugInfo, debugInfoSection),
-                new WebcilImageBuilder.R2RSectionSpec(ReadyToRunSectionType.ManifestMetadata, new byte[8]),
-            ]);
-        using var reader = new ReadyToRunReader(
-            new WebcilImageReader(image),
-            new NativeReader(new MemoryStream(image)));
-        ReadyToRunSection debugSection = reader.GetSections().Single(
-            section => section.Type == ReadyToRunSectionType.DebugInfo);
-        DebugInfoEntry entry = Assert.Single(reader.GetDebugInfoTable(debugSection).Entries);
-
-        Assert.Throws<BadImageFormatException>(() => reader.GetDebugInfo(entry.DebugInfoOffset));
+        Assert.Throws<BadImageFormatException>(() => reader.GetInliners(section, entry.InlinersOffset));
     }
 
     [Fact]

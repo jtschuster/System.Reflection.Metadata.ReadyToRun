@@ -34,8 +34,9 @@ namespace System.Reflection.Metadata.ReadyToRun
                 section,
                 Internal.Runtime.ReadyToRunSectionType.PgoInstrumentationData,
                 nameof(GetPgoInstrumentationDataTable));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
             NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
+            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)sectionEndOffset);
             var enumerator = hashtable.EnumerateAllEntries();
             var entries = new List<PgoEntry>();
 
@@ -45,10 +46,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 int signatureBlobOffset = (int)curParser.Offset;
                 byte lowHashcode = curParser.LowHashcode;
 
-                RegisterPayloadRange(
-                    signatureBlobOffset,
-                    sectionOffset,
-                    checked(sectionOffset + section.Size));
+                EnsureOffsetWithinRange(signatureBlobOffset, sectionOffset, sectionEndOffset);
                 entries.Add(new PgoEntry((PgoPayloadOffset)signatureBlobOffset, lowHashcode));
                 curParser = enumerator.GetNext();
             }
@@ -87,14 +85,15 @@ namespace System.Reflection.Metadata.ReadyToRun
             ArgumentNullException.ThrowIfNull(options);
 
             int payloadOffset = (int)entry.PayloadOffset;
-            (int sectionOffset, int sectionEndOffset) = GetPayloadRange(payloadOffset, nameof(entry));
+            int imageEndOffset = ImageEndOffset;
+            EnsureOffsetWithinRange(payloadOffset, 0, imageEndOffset);
             R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
-            EnsurePayloadOffsetWithinRange(signature.EndOffset, payloadOffset, allowEndOffset: false);
+            EnsureOffsetWithinRange(signature.EndOffset, 0, imageEndOffset);
 
             var parser = new NativeParser(
                 _nativeReader,
                 (uint)signature.EndOffset,
-                (uint)sectionEndOffset);
+                (uint)imageEndOffset);
             uint versionAndFlags = parser.GetUnsigned();
             int offset = (int)parser.Offset;
 
@@ -108,16 +107,16 @@ namespace System.Reflection.Metadata.ReadyToRun
                 case 3:
                     // Back-reference: subtract delta from post-versionAndFlags offset.
                     uint delta = parser.GetUnsigned();
-                    if (delta > (uint)(offset - sectionOffset))
-                        throw new BadImageFormatException("PGO data back-reference points outside its containing section.");
+                    if (delta > (uint)offset)
+                        throw new BadImageFormatException("PGO data back-reference points outside the image.");
                     pgoDataBlobOffset = offset - (int)delta;
                     break;
                 default:
                     throw new BadImageFormatException("Invalid PGO instrumentation data format");
             }
 
-            if (pgoDataBlobOffset < sectionOffset || pgoDataBlobOffset >= sectionEndOffset)
-                throw new BadImageFormatException("PGO data offset is outside its containing section.");
+            if (pgoDataBlobOffset >= imageEndOffset)
+                throw new BadImageFormatException("PGO data offset is outside the image.");
 
             int pgoFormatVersion = (int)(versionAndFlags >> 2);
             return new PgoPayload(

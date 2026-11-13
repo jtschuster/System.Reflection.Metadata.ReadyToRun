@@ -69,8 +69,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 {
     public partial class ReadyToRunReader
     {
-        private readonly Dictionary<EHInfoRva, EHInfo> _ehInfoCache = new();
-
         /// <summary>
         /// Resolve an <see cref="EHInfoRva"/> to its parsed exception handling information.
         /// The clause count is derived from the byte distance between consecutive EH info RVAs,
@@ -81,15 +79,9 @@ namespace System.Reflection.Metadata.ReadyToRun
         public EHInfo GetEHInfo(EHInfoRva handle, int ehInfoByteLength)
         {
             EnsureSemanticDecodingSupported(nameof(GetEHInfo));
-            if (_ehInfoCache.TryGetValue(handle, out EHInfo cached))
-                return cached;
-
             int clauseCount = ehInfoByteLength / EHClause.Length;
             if (clauseCount <= 0)
-            {
-                _ehInfoCache[handle] = null;
                 return null;
-            }
 
             int offset = (int)GetOffsetForRVA((ImageRVA)(uint)handle);
             var clauses = new List<EHClause>(clauseCount);
@@ -104,10 +96,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 clauses.Add(new EHClause(flags, tryOffset, tryEnd, handlerOffset, handlerEnd, classTokenOrFilterOffset));
             }
 
-            var result = new EHInfo(clauses);
-            _ehInfoCache[handle] = result;
-
-            return result;
+            return new EHInfo(clauses);
         }
     }
 }

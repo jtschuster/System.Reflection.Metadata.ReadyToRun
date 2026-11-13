@@ -756,7 +756,9 @@ The legacy section begins with a signed 32-bit byte size for an index of fixed e
 Each record contains an inlinee MethodDef RID followed by a signed offset, relative to the end of the
 index, to its inliner list. The target list starts with a nibble-encoded count followed by
 delta-encoded inliner RIDs (`src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:31`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:72`).
+`src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:72`). The reader exposes each
+list as an `InlinerListOffset` relative to the start of the section; pass it to
+`GetInliners(section, offset)` together with the same section.
 
 The format was deprecated in 4.1 in favor of `InliningInfo2`. Negative or non-record-aligned index
 sizes, out-of-section list offsets, overflowing RID deltas, and counts larger than the available
@@ -992,7 +994,7 @@ inside the original section (`src/ILCompiler.Reflection.ReadyToRun.Structural/Ex
 `src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:158`).
 
 In V28 and later, state 2 appends a counted sequence of key and serialized target-name pairs
-after the inner hashtable. `GetExternalTypeMapNamedEntries` reads those entries separately.
+after the inner hashtable. `GetExternalTypeMapNamedEntries(group)` reads those entries separately.
 
 The group model stores an opaque `ExternalTypeMapInnerHandle`; the reader privately associates it
 with the originating section range before `GetExternalTypeMapEntries` can traverse it
@@ -1010,7 +1012,7 @@ inner entry contains two adjacent type references instead of a string:
 | ValueRef | Compressed import-section index, then compressed fixup index |
 
 In V28 and later, state 2 appends a counted sequence of serialized source and proxy names.
-`GetProxyTypeMapNamedEntries` reads those entries separately.
+`GetProxyTypeMapNamedEntries(group)` reads those entries separately.
 
 The inner-table handle is opaque and usable only by the `ReadyToRunReader` instance that created it;
 the reader-owned range prevents forged handles from escaping into another section

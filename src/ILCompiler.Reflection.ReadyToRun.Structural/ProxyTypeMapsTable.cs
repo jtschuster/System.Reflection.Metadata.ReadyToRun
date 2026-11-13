@@ -85,7 +85,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
-        private Dictionary<ProxyTypeMapInnerHandle, (int StartOffset, int EndOffset, uint State)> _proxyTypeMapRanges;
 
         /// <summary>
         /// Parses the ProxyTypeMaps section as an outer NativeHashtable of type-map groups.
@@ -117,8 +116,9 @@ namespace System.Reflection.Metadata.ReadyToRun
 
                 if (state is 1 or 2)
                 {
+                    if (curParser.Offset < (uint)sectionOffset || curParser.Offset >= (uint)sectionEndOffset)
+                        throw new BadImageFormatException("Proxy type-map inner table starts outside its containing section.");
                     innerHandle = (ProxyTypeMapInnerHandle)curParser.Offset;
-                    RegisterProxyTypeMapRange(innerHandle, sectionOffset, sectionEndOffset, state);
                 }
 
                 groups.Add(new ProxyTypeMapGroup(groupRef, state, innerHandle));
@@ -140,9 +140,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (handle == default)
                 return Array.Empty<ProxyTypeMapEntry>();
 
-            (int _, int sectionEndOffset, uint _) = GetProxyTypeMapRange(handle);
+            int imageEndOffset = ImageEndOffset;
             NativeParser innerParser = new NativeParser(_nativeReader, (uint)handle);
-            NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)sectionEndOffset);
+            NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)imageEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = innerHashtable.EnumerateAllEntries();
 
             var entries = new List<ProxyTypeMapEntry>();
@@ -168,43 +168,18 @@ namespace System.Reflection.Metadata.ReadyToRun
             return entries;
         }
 
-        /// <summary>Reads serialized source and proxy names appended to a version 28 or later type map.</summary>
-        public IReadOnlyList<TypeMapNamedEntry> GetProxyTypeMapNamedEntries(ProxyTypeMapInnerHandle handle)
+        /// <summary>
+        /// Reads the serialized name pairs appended after the inner hashtable of a version 28 or later type-map group.
+        /// </summary>
+        /// <param name="group">A group from <see cref="ProxyTypeMapsTable.Groups"/>.</param>
+        /// <returns>The named entries, or an empty list when <see cref="ProxyTypeMapGroup.State"/> is not 2.</returns>
+        public IReadOnlyList<TypeMapNamedEntry> GetProxyTypeMapNamedEntries(ProxyTypeMapGroup group)
         {
             EnsureSemanticDecodingSupported(nameof(GetProxyTypeMapNamedEntries));
-            if (handle == default)
-                return Array.Empty<TypeMapNamedEntry>();
-            var range = GetProxyTypeMapRange(handle);
-            return range.State == 2
-                ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset)
+            ArgumentNullException.ThrowIfNull(group);
+            return group.State == 2
+                ? ReadTypeMapNamedEntries((uint)group.InnerHandle, ImageEndOffset)
                 : Array.Empty<TypeMapNamedEntry>();
-        }
-
-        private void RegisterProxyTypeMapRange(
-            ProxyTypeMapInnerHandle handle,
-            int sectionStartOffset,
-            int sectionEndOffset,
-            uint state)
-        {
-            uint rawOffset = (uint)handle;
-            if (rawOffset < sectionStartOffset || rawOffset >= sectionEndOffset)
-                throw new BadImageFormatException("Proxy type-map inner table starts outside its containing section.");
-
-            _proxyTypeMapRanges ??= new Dictionary<ProxyTypeMapInnerHandle, (int, int, uint)>();
-            _proxyTypeMapRanges[handle] = (sectionStartOffset, sectionEndOffset, state);
-        }
-
-        private (int StartOffset, int EndOffset, uint State) GetProxyTypeMapRange(ProxyTypeMapInnerHandle handle)
-        {
-            if (_proxyTypeMapRanges is null
-                || !_proxyTypeMapRanges.TryGetValue(handle, out var range))
-            {
-                throw new ArgumentException(
-                    "The proxy type-map handle was not created by this ReadyToRunReader.",
-                    nameof(handle));
-            }
-
-            return range;
         }
     }
 }

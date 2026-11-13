@@ -30,9 +30,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
-        private Dictionary<int, (int StartOffset, int EndOffset)> _payloadRanges;
-        private Dictionary<FixupCellListHandle, (int StartOffset, int EndOffset)> _fixupCellListRanges;
-
         /// <summary>
         /// Open the InstanceMethodEntryPoints section as an inert table that can be used for
         /// keyed lookups or full enumeration without eagerly decoding every entry.
@@ -96,9 +93,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             while (!entryParser.IsNull())
             {
                 int payloadOffset = (int)entryParser.Offset;
-                RegisterPayloadRange(payloadOffset, sectionOffset, sectionEndOffset);
+                EnsureOffsetWithinRange(payloadOffset, sectionOffset, sectionEndOffset);
                 R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
-                EnsurePayloadOffsetWithinRange(signature.EndOffset, payloadOffset, allowEndOffset: false);
+                EnsureOffsetWithinRange(signature.EndOffset, sectionOffset, sectionEndOffset);
                 MethodSignature methodSig = MethodSignature.FromSignature(signature.Signature);
                 if (predicate(methodSig))
                 {
@@ -129,7 +126,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             for (NativeParser curParser = enumerator.GetNext(); !curParser.IsNull(); curParser = enumerator.GetNext())
             {
-                RegisterPayloadRange((int)curParser.Offset, sectionOffset, sectionEndOffset);
+                EnsureOffsetWithinRange((int)curParser.Offset, sectionOffset, sectionEndOffset);
                 yield return new InstanceMethodEntry((InstanceMethodPayloadOffset)curParser.Offset, curParser.LowHashcode);
             }
         }
@@ -152,13 +149,13 @@ namespace System.Reflection.Metadata.ReadyToRun
             ArgumentNullException.ThrowIfNull(options);
 
             int payloadOffset = (int)entry.PayloadOffset;
-            (int sectionOffset, int sectionEndOffset) = GetPayloadRange(payloadOffset, nameof(entry));
+            int imageEndOffset = ImageEndOffset;
+            EnsureOffsetWithinRange(payloadOffset, 0, imageEndOffset);
             R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
-            EnsurePayloadOffsetWithinRange(signature.EndOffset, payloadOffset, allowEndOffset: false);
+            EnsureOffsetWithinRange(signature.EndOffset, 0, imageEndOffset);
 
-            int offset = signature.EndOffset;
             (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) =
-                DecodeRuntimeFunctionIdAndFixupCellList(offset, sectionOffset, sectionEndOffset);
+                DecodeRuntimeFunctionIdAndFixupCellList(signature.EndOffset, 0, imageEndOffset);
             return new InstanceMethodPayload(signature.Signature, runtimeFunctionIndex, fixupCellListHandle);
         }
 
@@ -196,8 +193,6 @@ namespace System.Reflection.Metadata.ReadyToRun
                 }
 
                 fixupCells = new FixupCellListHandle(fixupOffset, backReferenceDelta);
-                _fixupCellListRanges ??= new Dictionary<FixupCellListHandle, (int, int)>();
-                _fixupCellListRanges[fixupCells.Value] = (containingStartOffset, containingEndOffset);
                 runtimeFunctionIndex = (RuntimeFunctionIndex)(id >> 2);
             }
             else
@@ -214,20 +209,12 @@ namespace System.Reflection.Metadata.ReadyToRun
         public IReadOnlyList<FixupCellRef> GetFixupCells(FixupCellListHandle fixupCellList)
         {
             EnsureSemanticDecodingSupported(nameof(GetFixupCells));
-            if (_fixupCellListRanges is null
-                || !_fixupCellListRanges.TryGetValue(fixupCellList, out var range))
-            {
-                throw new ArgumentException(
-                    "The fixup-cell list handle was not created by this ReadyToRunReader.",
-                    nameof(fixupCellList));
-            }
-
             var fixupCells = new List<FixupCellRef>();
 
             NibbleReader nibbleReader = new NibbleReader(
                 _nativeReader,
                 fixupCellList.Offset,
-                range.EndOffset);
+                ImageEndOffset);
             uint curTableIndex = nibbleReader.ReadUInt();
 
             while (true)
@@ -259,34 +246,10 @@ namespace System.Reflection.Metadata.ReadyToRun
             return fixupCells;
         }
 
-        private void RegisterPayloadRange(int payloadOffset, int startOffset, int endOffset)
+        private static void EnsureOffsetWithinRange(int offset, int startOffset, int endOffset)
         {
-            if (payloadOffset < startOffset || payloadOffset >= endOffset)
-                throw new BadImageFormatException("Payload offset is outside its containing section.");
-
-            _payloadRanges ??= new Dictionary<int, (int, int)>();
-            _payloadRanges[payloadOffset] = (startOffset, endOffset);
-        }
-
-        private (int StartOffset, int EndOffset) GetPayloadRange(int payloadOffset, string parameterName)
-        {
-            if (_payloadRanges is null || !_payloadRanges.TryGetValue(payloadOffset, out var range))
-            {
-                throw new ArgumentException(
-                    "The payload handle was not created by this ReadyToRunReader.",
-                    parameterName);
-            }
-
-            return range;
-        }
-
-        private void EnsurePayloadOffsetWithinRange(int offset, int payloadOffset, bool allowEndOffset)
-        {
-            (int startOffset, int endOffset) = GetPayloadRange(payloadOffset, nameof(payloadOffset));
-            bool valid = offset >= startOffset
-                && (allowEndOffset ? offset <= endOffset : offset < endOffset);
-            if (!valid)
-                throw new BadImageFormatException("Payload extends beyond its containing section.");
+            if (offset < startOffset || offset >= endOffset)
+                throw new BadImageFormatException("Payload extends beyond its containing range.");
         }
     }
 

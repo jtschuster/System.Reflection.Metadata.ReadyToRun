@@ -575,8 +575,6 @@ public sealed class SectionCoverage100_126Tests
         ExternalTypeMapEntry e = innerEntries[0];
         Assert.Equal("Foo", e.Key);
         Assert.Equal(new ImportFixupReference((ImportSectionIndex)3, (ImportCellIndex)4), e.ResultRef);
-        Assert.Throws<ArgumentException>(() => reader.GetExternalTypeMapEntries(
-            (ExternalTypeMapInnerHandle)((uint)g.InnerHandle + 1)));
     }
 
     [Fact]
@@ -647,8 +645,6 @@ public sealed class SectionCoverage100_126Tests
         ProxyTypeMapEntry e = innerEntries[0];
         Assert.Equal(new ImportFixupReference((ImportSectionIndex)1, (ImportCellIndex)2), e.KeyRef);
         Assert.Equal(new ImportFixupReference((ImportSectionIndex)3, (ImportCellIndex)4), e.ValueRef);
-        Assert.Throws<ArgumentException>(() => reader.GetProxyTypeMapEntries(
-            (ProxyTypeMapInnerHandle)((uint)g.InnerHandle + 1)));
     }
 
     [Fact]

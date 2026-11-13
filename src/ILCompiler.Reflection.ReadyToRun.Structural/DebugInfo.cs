@@ -57,8 +57,6 @@ public sealed class DebugInfo
 
 public partial class ReadyToRunReader
 {
-    private Dictionary<DebugInfoOffset, (int StartOffset, int EndOffset)> _debugInfoRanges;
-
     /// <summary>
     /// Parse debug information from an R2R image at the given file offset.
     /// This is a standalone parser that does not depend on <see cref="RuntimeFunction"/>.
@@ -70,15 +68,7 @@ public partial class ReadyToRunReader
         EnsureSemanticDecodingSupported(nameof(GetDebugInfo));
 
         int containingStartOffset = 0;
-        int containingEndOffset = _nativeReader.Length > int.MaxValue
-            ? int.MaxValue
-            : (int)_nativeReader.Length;
-        if (_debugInfoRanges is not null
-            && _debugInfoRanges.TryGetValue(offset, out var registeredRange))
-        {
-            containingStartOffset = registeredRange.StartOffset;
-            containingEndOffset = registeredRange.EndOffset;
-        }
+        int containingEndOffset = ImageEndOffset;
 
         NativeReader imageReader = _nativeReader;
         Machine machine = Machine;
@@ -403,18 +393,5 @@ public partial class ReadyToRunReader
 
             return offset;
         }
-    }
-
-    private void RegisterDebugInfoRange(
-        DebugInfoOffset offset,
-        int containingStartOffset,
-        int containingEndOffset)
-    {
-        uint rawOffset = (uint)offset;
-        if (rawOffset < containingStartOffset || rawOffset >= containingEndOffset)
-            throw new BadImageFormatException("Debug info entry offset is outside its containing section.");
-
-        _debugInfoRanges ??= new Dictionary<DebugInfoOffset, (int, int)>();
-        _debugInfoRanges[offset] = (containingStartOffset, containingEndOffset);
     }
 }

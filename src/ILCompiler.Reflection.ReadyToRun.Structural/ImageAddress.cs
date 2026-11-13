@@ -187,7 +187,7 @@ public readonly record struct AuxiliaryDataTableRva
     public override string ToString() => $"{nameof(AuxiliaryDataTableRva)} {{ Value = {_value} }}";
 }
 
-/// <summary>Image offset of an inliner list.</summary>
+/// <summary>Offset of an inliner list, relative to the start of the InliningInfo section.</summary>
 public readonly record struct InlinerListOffset
 {
     private readonly uint _value;
