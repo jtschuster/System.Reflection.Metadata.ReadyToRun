@@ -46,7 +46,6 @@ public sealed class Crossgen2ReadyToRunTests
         Assert.Null(typeof(RuntimeFunctionEntry).GetProperty("Index"));
         Assert.Equal(typeof(CodeRva?), typeof(RuntimeFunctionEntry).GetProperty(nameof(RuntimeFunctionEntry.EndRva))?.PropertyType);
         Assert.Equal(typeof(CodeRva), typeof(ExceptionInfoEntry).GetProperty(nameof(ExceptionInfoEntry.MethodRva))?.PropertyType);
-        Assert.Equal(typeof(uint), typeof(DelayLoadMethodThunkRva).GetProperty(nameof(DelayLoadMethodThunkRva.Value))?.PropertyType);
         Assert.Null(typeof(ReadyToRunSection).GetProperty("DelayLoadMethodThunkRva"));
     }
 

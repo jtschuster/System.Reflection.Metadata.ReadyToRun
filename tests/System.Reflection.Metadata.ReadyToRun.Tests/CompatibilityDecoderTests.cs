@@ -485,7 +485,7 @@ public sealed class CompatibilityDecoderTests
     {
         public Machine Machine => machine;
 
-        public ImageOffset GetOffset(ImageRVA rva) => (ImageOffset)rva.Value;
+        public ImageOffset GetOffset(ImageRVA rva) => (ImageOffset)(uint)rva;
 
         public bool TryGetReadyToRunHeader(out ImageRVA rva, out bool isComposite)
         {

@@ -60,16 +60,17 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
             // Use section-level file offset, not segment-level. Sections within a segment
             // have independent file offsets that may differ from segment.fileoff + (rva - segment.vmaddr)
             // due to Mach-O header packing.
-            if (TryGetContainingSection(rva.Value, out Section64LoadCommand section))
+            uint address = (uint)rva;
+            if (TryGetContainingSection(address, out Section64LoadCommand section))
             {
-                ulong offsetWithinSection = rva.Value - section.GetVMAddress(_header);
+                ulong offsetWithinSection = address - section.GetVMAddress(_header);
                 ulong fileOffset = section.GetFileOffset(_header) + offsetWithinSection;
                 System.Diagnostics.Debug.Assert(fileOffset <= int.MaxValue);
                 return (ImageOffset)(uint)fileOffset;
             }
             else
             {
-                throw new BadImageFormatException("Failed to convert RVA to offset: " + rva.Value);
+                throw new BadImageFormatException("Failed to convert RVA to offset: " + address);
             }
         }
 
@@ -91,8 +92,8 @@ namespace System.Reflection.Metadata.ReadyToRun.MachO
             }
 
             rva = (ImageRVA)_rtrHeaderRva.Value;
-            isComposite = rva.Value != 0; // Mach-O R2R images are always composite
-            return rva.Value != 0;
+            isComposite = (uint)rva != 0; // Mach-O R2R images are always composite
+            return isComposite;
         }
 
         public MetadataReader GetStandaloneAssemblyMetadata() => null;

@@ -30,7 +30,7 @@ public partial class ReadyToRunReader
     {
         EnsureSemanticDecodingSupported(nameof(GetUnwindInfo));
 
-        int unwindOffset = (int)GetOffsetForRVA((ImageRVA)handle.Value);
+        int unwindOffset = (int)GetOffsetForRVA((ImageRVA)(uint)handle);
         BaseUnwindInfo result = Machine switch
         {
             Machine.I386 => new x86.UnwindInfo(_nativeReader, unwindOffset),

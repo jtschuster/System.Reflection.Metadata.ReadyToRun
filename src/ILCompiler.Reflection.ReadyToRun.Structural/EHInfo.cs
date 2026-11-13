@@ -91,7 +91,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 return null;
             }
 
-            int offset = (int)GetOffsetForRVA((ImageRVA)handle.Value);
+            int offset = (int)GetOffsetForRVA((ImageRVA)(uint)handle);
             var clauses = new List<EHClause>(clauseCount);
             for (int i = 0; i < clauseCount; i++)
             {

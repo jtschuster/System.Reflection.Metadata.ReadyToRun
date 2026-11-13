@@ -140,23 +140,24 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
 
         public ImageOffset GetOffset(ImageRVA rva)
         {
+            uint address = (uint)rva;
             foreach (WebcilSectionHeader section in _sections)
             {
-                if (rva.Value >= section.VirtualAddress && rva.Value < (ulong)section.VirtualAddress + section.VirtualSize)
+                if (address >= section.VirtualAddress && address < (ulong)section.VirtualAddress + section.VirtualSize)
                 {
-                    uint sectionRelative = rva.Value - section.VirtualAddress;
+                    uint sectionRelative = address - section.VirtualAddress;
                     if (sectionRelative >= section.SizeOfRawData)
-                        throw new BadImageFormatException($"RVA 0x{rva.Value:X} maps beyond section raw data");
+                        throw new BadImageFormatException($"RVA 0x{address:X} maps beyond section raw data");
 
                     long fileOffset = section.PointerToRawData + (long)sectionRelative + _webcilOffset;
                     if (fileOffset < 0 || fileOffset > _image.Length)
-                        throw new BadImageFormatException($"RVA 0x{rva.Value:X} maps outside the image");
+                        throw new BadImageFormatException($"RVA 0x{address:X} maps outside the image");
 
                     return (ImageOffset)checked((int)fileOffset);
                 }
             }
 
-            throw new BadImageFormatException($"RVA 0x{rva.Value:X} not found in any Webcil section");
+            throw new BadImageFormatException($"RVA 0x{address:X} not found in any Webcil section");
         }
 
         /// <summary>
@@ -208,7 +209,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
         {
             // offset is an absolute file offset into the (already pinned) image bytes; it has had
             // _webcilOffset applied already by GetOffset, so we must not add it again here.
-            if (size <= 0 || offset.Value > int.MaxValue || (long)offset.Value + size > _image.Length)
+            if (size <= 0 || (uint)offset > int.MaxValue || (long)(uint)offset + size > _image.Length)
                 throw new BadImageFormatException("Metadata range is outside the image");
 
             return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[(int)offset]), size);

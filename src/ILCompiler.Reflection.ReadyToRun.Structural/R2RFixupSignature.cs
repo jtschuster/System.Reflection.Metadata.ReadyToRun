@@ -112,7 +112,7 @@ public sealed class R2RStoreMultiCallableAddrFixupPayload : R2RFixupPayload
         => (TargetRva, LocationRva) = (targetRva, locationRva);
 
     public override void AppendTo(StringBuilder sb)
-        => sb.Append($"target RVA:0x{TargetRva.Value:X} location RVA:0x{LocationRva.Value:X}");
+        => sb.Append($"target RVA:0x{(uint)TargetRva:X} location RVA:0x{(uint)LocationRva:X}");
 }
 
 /// <summary>

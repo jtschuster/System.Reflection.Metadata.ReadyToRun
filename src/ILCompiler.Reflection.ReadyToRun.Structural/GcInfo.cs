@@ -26,7 +26,7 @@ public partial class ReadyToRunReader
         BaseGcInfo result;
         if (Machine == Machine.I386)
         {
-            int gcInfoOffset = (int)GetOffsetForRVA((ImageRVA)handle.Value);
+            int gcInfoOffset = (int)GetOffsetForRVA((ImageRVA)(uint)handle);
             result = new x86.GcInfo(_nativeReader, gcInfoOffset, gcInfoVersion);
         }
         else

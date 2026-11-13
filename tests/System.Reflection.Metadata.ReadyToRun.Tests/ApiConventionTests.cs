@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 using Xunit;
 
@@ -67,7 +68,7 @@ public sealed class ApiConventionTests
     }
 
     /// <summary>
-    /// Opaque handles are readonly value types whose raw value matches the on-disk field size.
+    /// Opaque handles are readonly value types with explicit 32-bit conversions.
     /// </summary>
     public static IEnumerable<object[]> OpaqueValueTypes() => new[]
     {
@@ -104,10 +105,33 @@ public sealed class ApiConventionTests
         Type type = RequireType(typeName);
         Assert.True(type.IsValueType && !type.IsEnum, $"{typeName} should be a value type, not an enum.");
         Assert.True(type.IsDefined(typeof(IsReadOnlyAttribute), inherit: false), $"{typeName} should be readonly.");
-        Assert.Equal(typeof(uint), type.GetProperty("Value")?.PropertyType);
-        Assert.Contains(type.GetMethods(BindingFlags.Public | BindingFlags.Static), method =>
-            method.Name == "op_Explicit" && method.ReturnType == type && method.GetParameters() is [{ ParameterType: var parameterType }] && parameterType == typeof(uint));
-        Assert.DoesNotContain(type.GetMethods(BindingFlags.Public | BindingFlags.Static), method => method.Name == "op_Implicit");
+        Assert.Equal(sizeof(uint), Marshal.SizeOf(type));
+        Assert.Empty(type.GetFields(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(type.GetProperties(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Null(type.GetMethod("Deconstruct"));
+
+        MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static);
+        MethodInfo fromUInt = Assert.Single(methods, method =>
+            method.Name == "op_Explicit" && method.ReturnType == type &&
+            method.GetParameters() is [{ ParameterType: var parameterType }] && parameterType == typeof(uint));
+        MethodInfo fromInt = Assert.Single(methods, method =>
+            method.Name == "op_Explicit" && method.ReturnType == type &&
+            method.GetParameters() is [{ ParameterType: var parameterType }] && parameterType == typeof(int));
+        MethodInfo toUInt = Assert.Single(methods, method =>
+            method.Name == "op_Explicit" && method.ReturnType == typeof(uint) &&
+            method.GetParameters() is [{ ParameterType: var parameterType }] && parameterType == type);
+        MethodInfo toInt = Assert.Single(methods, method =>
+            method.Name == "op_Explicit" && method.ReturnType == typeof(int) &&
+            method.GetParameters() is [{ ParameterType: var parameterType }] && parameterType == type);
+        Assert.DoesNotContain(methods, method => method.Name == "op_Implicit");
+
+        object allBits = fromUInt.Invoke(null, new object[] { uint.MaxValue })!;
+        Assert.Equal(uint.MaxValue, (uint)toUInt.Invoke(null, new[] { allBits })!);
+        Assert.Equal(-1, (int)toInt.Invoke(null, new[] { allBits })!);
+        Assert.NotEqual(Activator.CreateInstance(type), allBits);
+        Assert.Equal(allBits, fromUInt.Invoke(null, new object[] { uint.MaxValue }));
+        Assert.Equal(allBits, fromInt.Invoke(null, new object[] { -1 }));
+        Assert.Equal($"{type.Name} {{ Value = {uint.MaxValue} }}", allBits.ToString());
     }
 
     [Fact]
@@ -158,7 +182,7 @@ public sealed class ApiConventionTests
             new((RuntimeFunctionIndex)5, (DebugInfoOffset)34),
         });
 
-        Assert.Equal(new uint[] { 0, 5 }, table.Entries.Select(entry => entry.RuntimeFunctionIndex.Value));
+        Assert.Equal(new uint[] { 0, 5 }, table.Entries.Select(entry => (uint)entry.RuntimeFunctionIndex));
     }
 
     [Fact]

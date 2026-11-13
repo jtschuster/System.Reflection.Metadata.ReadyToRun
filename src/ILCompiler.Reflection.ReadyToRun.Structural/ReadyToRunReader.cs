@@ -214,7 +214,7 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         private static int GetImageOffset(ImageOffset offset)
         {
-            if (offset.Value > int.MaxValue)
+            if ((uint)offset > int.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(offset), "Image offset exceeds the supported reader range.");
             return (int)offset;
         }
@@ -462,7 +462,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             EnsureSemanticDecodingSupported(nameof(GetRuntimeFunctionIndexFromOffset));
             fixupOffset = null;
 
-            if (offset.Value > int.MaxValue)
+            if ((uint)offset > int.MaxValue)
                 throw new ArgumentOutOfRangeException(nameof(offset), "Image offset exceeds the supported reader range.");
             int currentOffset = (int)offset;
             uint id = 0;
@@ -506,7 +506,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         {
             EnsureSemanticDecodingSupported(nameof(DecodeFixupSignature));
             ArgumentNullException.ThrowIfNull(options);
-            int offset = (int)_platformBinaryReader.GetOffset((ImageRVA)signatureRva.Value);
+            int offset = (int)_platformBinaryReader.GetOffset((ImageRVA)(uint)signatureRva);
             R2RSignature signature = RawSignatureDecoder.DecodeFixupSignature(_nativeReader, offset, TargetPointerSize, options);
             return R2RFixupSignature.FromSignature(signature);
         }
