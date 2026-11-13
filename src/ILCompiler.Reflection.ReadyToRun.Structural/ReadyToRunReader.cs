@@ -252,22 +252,15 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Reads one raw byte at the specified image file offset.</summary>
         public byte ReadByte(ImageOffset offset)
         {
-            int currentOffset = GetImageOffset(offset);
+            int currentOffset = (int)offset;
             return _nativeReader.ReadByte(ref currentOffset);
         }
 
         /// <summary>Copies raw image bytes beginning at the specified file offset.</summary>
         public void ReadBytes(ImageOffset offset, Span<byte> destination)
         {
-            int currentOffset = GetImageOffset(offset);
+            int currentOffset = (int)offset;
             _nativeReader.ReadSpanAt(ref currentOffset, destination);
-        }
-
-        private static int GetImageOffset(ImageOffset offset)
-        {
-            if ((uint)offset > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(offset), "Image offset exceeds the supported reader range.");
-            return (int)offset;
         }
 
         /// <summary>
@@ -513,8 +506,6 @@ namespace System.Reflection.Metadata.ReadyToRun
             EnsureSemanticDecodingSupported(nameof(GetRuntimeFunctionIndexFromOffset));
             fixupOffset = null;
 
-            if ((uint)offset > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(offset), "Image offset exceeds the supported reader range.");
             int currentOffset = (int)offset;
             uint id = 0;
             currentOffset = (int)_nativeReader.DecodeUnsigned((uint)currentOffset, ref id);
