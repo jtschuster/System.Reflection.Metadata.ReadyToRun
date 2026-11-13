@@ -55,8 +55,8 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
 
         /// <summary>
-        /// Fully parse a <see cref="PgoEntry"/>: decode the method signature, then read
-        /// the encoded versionAndFlags word and resolve the PGO data blob offset.
+        /// Parse a <see cref="PgoEntry"/>: decode the method signature, then read
+        /// the encoded versionAndFlags word and optional PGO data back-reference delta.
         /// </summary>
         /// <remarks>
         /// Payload layout at <see cref="PgoEntry.PayloadOffset"/>:
@@ -76,7 +76,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             => GetPgoPayload(entry, SignatureDecodingOptions);
 
         /// <summary>
-        /// Fully parse a <see cref="PgoEntry"/> using explicit ReadyToRun version/policy settings.
+        /// Parse a <see cref="PgoEntry"/> using explicit ReadyToRun version/policy settings.
         /// </summary>
         public PgoPayload GetPgoPayload(PgoEntry entry, IReadyToRunSignatureDecodingOptions options)
         {
@@ -95,34 +95,27 @@ namespace System.Reflection.Metadata.ReadyToRun
                 (uint)signature.EndOffset,
                 (uint)imageEndOffset);
             uint versionAndFlags = parser.GetUnsigned();
-            int offset = (int)parser.Offset;
-
-            int pgoDataBlobOffset;
+            PgoDataBlobBackReferenceDelta? pgoDataBlobBackReferenceDelta = null;
             switch (versionAndFlags & 3)
             {
                 case 1:
-                    // Inline: data follows versionAndFlags directly.
-                    pgoDataBlobOffset = offset;
                     break;
                 case 3:
-                    // Back-reference: subtract delta from post-versionAndFlags offset.
+                    // Preserve the encoded delta; do not turn it into an image offset.
                     uint delta = parser.GetUnsigned();
-                    if (delta > (uint)offset)
+                    if (delta > parser.Offset)
                         throw new BadImageFormatException("PGO data back-reference points outside the image.");
-                    pgoDataBlobOffset = offset - (int)delta;
+                    pgoDataBlobBackReferenceDelta = (PgoDataBlobBackReferenceDelta)delta;
                     break;
                 default:
                     throw new BadImageFormatException("Invalid PGO instrumentation data format");
             }
 
-            if (pgoDataBlobOffset >= imageEndOffset)
-                throw new BadImageFormatException("PGO data offset is outside the image.");
-
             int pgoFormatVersion = (int)(versionAndFlags >> 2);
             return new PgoPayload(
                 signature.Signature,
                 pgoFormatVersion,
-                (PgoDataBlobOffset)(uint)pgoDataBlobOffset);
+                pgoDataBlobBackReferenceDelta);
         }
     }
 
@@ -164,19 +157,19 @@ namespace System.Reflection.Metadata.ReadyToRun
         public int PgoFormatVersion { get; }
 
         /// <summary>
-        /// File offset of the PGO data blob. For back-referenced entries this points at a
-        /// previously-emitted (deduplicated) blob and may precede the entry's own offset.
+        /// Raw backward-reference delta to the deduplicated PGO data blob, or <see langword="null"/>
+        /// when the data immediately follows the <c>versionAndFlags</c> value.
         /// </summary>
-        public PgoDataBlobOffset PgoDataBlobOffset { get; }
+        public PgoDataBlobBackReferenceDelta? PgoDataBlobBackReferenceDelta { get; }
 
         internal PgoPayload(
             R2RSignature methodSignature,
             int pgoFormatVersion,
-            PgoDataBlobOffset pgoDataBlobOffset)
+            PgoDataBlobBackReferenceDelta? pgoDataBlobBackReferenceDelta)
         {
             MethodSignature = methodSignature;
             PgoFormatVersion = pgoFormatVersion;
-            PgoDataBlobOffset = pgoDataBlobOffset;
+            PgoDataBlobBackReferenceDelta = pgoDataBlobBackReferenceDelta;
         }
     }
 }

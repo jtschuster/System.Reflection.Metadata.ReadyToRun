@@ -122,7 +122,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 {
                     if (curParser.Offset < (uint)sectionOffset || curParser.Offset >= (uint)sectionEndOffset)
                         throw new BadImageFormatException("External type-map inner table starts outside its containing section.");
-                    innerHandle = (ExternalTypeMapInnerHandle)curParser.Offset;
+                    innerHandle = (ExternalTypeMapInnerHandle)(curParser.Offset - (uint)sectionOffset);
                 }
 
                 groups.Add(new ExternalTypeMapGroup(groupRef, state, innerHandle));
@@ -136,17 +136,27 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Enumerates the inner entries of an ExternalTypeMaps group referenced by
         /// <paramref name="handle"/>. Each entry is a UTF-8 key to result-type reference mapping.
         /// </summary>
-        /// <param name="handle">The inner handle from <see cref="ExternalTypeMapGroup.InnerHandle"/>.</param>
+        /// <param name="section">The ExternalTypeMaps section that contains the inner table.</param>
+        /// <param name="handle">The section-relative inner handle from <see cref="ExternalTypeMapGroup.InnerHandle"/>.</param>
         public IReadOnlyList<ExternalTypeMapEntry> GetExternalTypeMapEntries(
+            ReadyToRunSection section,
             ExternalTypeMapInnerHandle handle)
         {
             EnsureSemanticDecodingSupported(nameof(GetExternalTypeMapEntries));
             if (handle == default)
                 return Array.Empty<ExternalTypeMapEntry>();
 
-            int imageEndOffset = ImageEndOffset;
-            NativeParser innerParser = new NativeParser(_nativeReader, (uint)handle);
-            NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)imageEndOffset);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ExternalTypeMaps,
+                nameof(GetExternalTypeMapEntries));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)handle >= (uint)section.Size)
+                throw new BadImageFormatException("External type-map inner-table offset is outside its section.");
+
+            uint innerOffset = checked((uint)(sectionOffset + (int)(uint)handle));
+            NativeParser innerParser = new NativeParser(_nativeReader, innerOffset);
+            NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = innerHashtable.EnumerateAllEntries();
 
             var entries = new List<ExternalTypeMapEntry>();
@@ -155,8 +165,8 @@ namespace System.Reflection.Metadata.ReadyToRun
             while (!curParser.IsNull())
             {
                 uint keyLength = curParser.GetUnsigned();
-                if (keyLength > imageEndOffset - (long)curParser.Offset)
-                    throw new BadImageFormatException("External type-map key extends beyond the image.");
+                if (keyLength > sectionEndOffset - (long)curParser.Offset)
+                    throw new BadImageFormatException("External type-map key extends beyond its containing section.");
 
                 byte[] keyBytes = new byte[(int)keyLength];
                 int rawOffset = (int)curParser.Offset;
@@ -188,14 +198,27 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>
         /// Reads the serialized name pairs appended after the inner hashtable of a version 28 or later type-map group.
         /// </summary>
+        /// <param name="section">The ExternalTypeMaps section containing <paramref name="group"/>.</param>
         /// <param name="group">A group from <see cref="ExternalTypeMapsTable.Groups"/>.</param>
         /// <returns>The named entries, or an empty list when <see cref="ExternalTypeMapGroup.State"/> is not 2.</returns>
-        public IReadOnlyList<TypeMapNamedEntry> GetExternalTypeMapNamedEntries(ExternalTypeMapGroup group)
+        public IReadOnlyList<TypeMapNamedEntry> GetExternalTypeMapNamedEntries(
+            ReadyToRunSection section,
+            ExternalTypeMapGroup group)
         {
             EnsureSemanticDecodingSupported(nameof(GetExternalTypeMapNamedEntries));
             ArgumentNullException.ThrowIfNull(group);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ExternalTypeMaps,
+                nameof(GetExternalTypeMapNamedEntries));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)group.InnerHandle >= (uint)section.Size)
+                throw new BadImageFormatException("External type-map inner-table offset is outside its section.");
+
             return group.State == 2
-                ? ReadTypeMapNamedEntries((uint)group.InnerHandle, ImageEndOffset)
+                ? ReadTypeMapNamedEntries(
+                    checked((uint)(sectionOffset + (int)(uint)group.InnerHandle)),
+                    sectionEndOffset)
                 : Array.Empty<TypeMapNamedEntry>();
         }
     }

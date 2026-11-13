@@ -620,8 +620,13 @@ method entrypoints. Methoddef is used as index into the array. The element of th
 method in `RuntimeFunctions`, followed by list of slots that need to be filled before the method
 can start executing.
 
-The index of the method is left-shifted by 1 bit with the low bit indicating whether a list of slots
-to fix up follows. The list of slots is encoded as follows (same encoding as used by NGen):
+The entry payload begins with a compressed ID. Bit 0 indicates whether a list of slots to fix up
+follows; bit 1 indicates whether the fixup list is back-referenced. The reader exposes a
+`FixupCellListHandle` as the section-relative offset of this encoded ID. Pass it with its
+entry-point section to `GetFixupCells(section, handle)` to decode the optional back-reference and
+the nibble-encoded list.
+
+The list of slots is encoded as follows (same encoding as used by NGen):
 
 ```
 READYTORUN_IMPORT_SECTIONS absolute index
@@ -757,7 +762,7 @@ Each record contains an inlinee MethodDef RID followed by a signed offset, relat
 index, to its inliner list. The target list starts with a nibble-encoded count followed by
 delta-encoded inliner RIDs (`src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:31`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:72`). The reader exposes each
-list as an `InlinerListOffset` relative to the start of the section; pass it to
+list as its encoded index-relative displacement in `InlinerListOffset`; pass it to
 `GetInliners(section, offset)` together with the same section.
 
 The format was deprecated in 4.1 in favor of `InliningInfo2`. Negative or non-record-aligned index
@@ -903,9 +908,9 @@ back-reference delta to a previously emitted schema blob. The remaining high bit
 format version (`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:31`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:94`).
 
-The structural API returns an opaque `PgoDataBlobOffset`; interpretation of the schema-driven PGO
-records is left to higher layers. Both inline and back-referenced offsets remain bounded by the
-containing section (`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:101`).
+The structural API returns the raw `PgoDataBlobBackReferenceDelta` for tag 3 and `null` for tag 1.
+It does not resolve the delta to an image offset; interpretation of the schema-driven PGO records
+is left to higher layers.
 
 ## ReadyToRunSectionType.ManifestAssemblyMvids (v5.3+)
 
@@ -994,12 +999,10 @@ inside the original section (`src/ILCompiler.Reflection.ReadyToRun.Structural/Ex
 `src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:158`).
 
 In V28 and later, state 2 appends a counted sequence of key and serialized target-name pairs
-after the inner hashtable. `GetExternalTypeMapNamedEntries(group)` reads those entries separately.
+after the inner hashtable. `GetExternalTypeMapNamedEntries(section, group)` reads those entries separately.
 
-The group model stores an opaque `ExternalTypeMapInnerHandle`; the reader privately associates it
-with the originating section range before `GetExternalTypeMapEntries` can traverse it
-(`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:47`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:187`).
+The group model stores the offset of the inline inner table relative to the start of the section.
+Pass both the section and handle to `GetExternalTypeMapEntries(section, handle)` to traverse it.
 
 ## ReadyToRunSectionType.ProxyTypeMaps (v18.3+)
 
@@ -1012,13 +1015,10 @@ inner entry contains two adjacent type references instead of a string:
 | ValueRef | Compressed import-section index, then compressed fixup index |
 
 In V28 and later, state 2 appends a counted sequence of serialized source and proxy names.
-`GetProxyTypeMapNamedEntries(group)` reads those entries separately.
+`GetProxyTypeMapNamedEntries(section, group)` reads those entries separately.
 
-The inner-table handle is opaque and usable only by the `ReadyToRunReader` instance that created it;
-the reader-owned range prevents forged handles from escaping into another section
-(`src/ILCompiler.Reflection.ReadyToRun.Structural/ProxyTypeMapsTable.cs:95`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/ProxyTypeMapsTable.cs:137`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/ProxyTypeMapsTable.cs:172`).
+The inner-table handle is the offset of the inline table relative to the start of this section.
+Pass both the section and handle to `GetProxyTypeMapEntries(section, handle)` to traverse it.
 
 ## ReadyToRunSectionType.TypeMapAssemblyTargets (v18.3+)
 

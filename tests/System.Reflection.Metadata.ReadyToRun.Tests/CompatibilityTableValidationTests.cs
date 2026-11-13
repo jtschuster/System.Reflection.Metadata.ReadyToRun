@@ -271,7 +271,7 @@ public sealed class CompatibilityTableValidationTests
     }
 
     [Fact]
-    public void GetInliners_DecodesSectionRelativeOffsetWithoutParsingTable()
+    public void GetInliners_DecodesRawRelativeOffsetWithoutParsingTable()
     {
         byte[] content = Combine(
             Int32Bytes(2 * sizeof(int)),
@@ -281,10 +281,10 @@ public sealed class CompatibilityTableValidationTests
         using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.InliningInfo, content);
         ReadyToRunSection section = Assert.Single(reader.GetSections());
 
-        IReadOnlyList<MethodRid> inliners = reader.GetInliners(section, (InlinerListOffset)12u);
+        IReadOnlyList<MethodRid> inliners = reader.GetInliners(section, (InlinerListOffset)0u);
 
         Assert.Equal([(MethodRid)3, (MethodRid)7], inliners);
-        Assert.Equal((InlinerListOffset)12u, Assert.Single(reader.GetInliningInfoTable(section).Entries).InlinersOffset);
+        Assert.Equal((InlinerListOffset)0u, Assert.Single(reader.GetInliningInfoTable(section).Entries).InlinersOffset);
     }
 
     [Fact]
@@ -295,6 +295,25 @@ public sealed class CompatibilityTableValidationTests
         ReadyToRunSection section = Assert.Single(reader.GetSections());
 
         Assert.Throws<BadImageFormatException>(() => reader.GetInliners(section, (InlinerListOffset)(uint)section.Size));
+    }
+
+    [Theory]
+    [InlineData(7, 1)]
+    [InlineData(5, -1)]
+    public void GetPgoPayload_PreservesEncodedBlobBackReference(int versionAndFlags, int? expectedDelta)
+    {
+        byte[] content = [0, 2, (byte)(versionAndFlags << 1), 2];
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.CompilerIdentifier, content);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+        int payloadOffset = (int)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+        var entry = new PgoEntry((PgoPayloadOffset)(uint)payloadOffset, lowHashcode: 0);
+
+        PgoPayload payload = reader.GetPgoPayload(entry);
+
+        if (expectedDelta is int delta && delta >= 0)
+            Assert.Equal((uint)delta, (uint)payload.PgoDataBlobBackReferenceDelta!.Value);
+        else
+            Assert.Null(payload.PgoDataBlobBackReferenceDelta);
     }
 
     [Fact]

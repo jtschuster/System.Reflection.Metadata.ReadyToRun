@@ -102,7 +102,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Index into the RuntimeFunctions array.</summary>
         public RuntimeFunctionIndex EntryPointIndex { get; }
 
-        /// <summary>Handle to fixup cells this method needs resolved before execution.</summary>
+        /// <summary>Handle to the encoded fixup-list reference for this method.</summary>
         public FixupCellListHandle? FixupCellListHandle { get; }
 
         internal MethodDefEntry(RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)

@@ -211,6 +211,18 @@ public readonly record struct InstanceMethodPayloadOffset
     public override string ToString() => $"{nameof(InstanceMethodPayloadOffset)} {{ Value = {_value} }}";
 }
 
+/// <summary>Offset of an encoded fixup-list reference, relative to its entry-point section.</summary>
+public readonly record struct FixupCellListOffset
+{
+    private readonly uint _value;
+    public FixupCellListOffset(uint Value) => _value = Value;
+    public static explicit operator FixupCellListOffset(uint value) => new(value);
+    public static explicit operator FixupCellListOffset(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(FixupCellListOffset value) => value._value;
+    public static explicit operator int(FixupCellListOffset value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(FixupCellListOffset)} {{ Value = {_value} }}";
+}
+
 /// <summary>Image offset of a PGO payload.</summary>
 public readonly record struct PgoPayloadOffset
 {
@@ -223,16 +235,16 @@ public readonly record struct PgoPayloadOffset
     public override string ToString() => $"{nameof(PgoPayloadOffset)} {{ Value = {_value} }}";
 }
 
-/// <summary>Image offset of a PGO data blob.</summary>
-public readonly record struct PgoDataBlobOffset
+/// <summary>Encoded backward-reference delta to a deduplicated PGO data blob.</summary>
+public readonly record struct PgoDataBlobBackReferenceDelta
 {
     private readonly uint _value;
-    public PgoDataBlobOffset(uint Value) => _value = Value;
-    public static explicit operator PgoDataBlobOffset(uint value) => new(value);
-    public static explicit operator PgoDataBlobOffset(int value) => new(unchecked((uint)value));
-    public static explicit operator uint(PgoDataBlobOffset value) => value._value;
-    public static explicit operator int(PgoDataBlobOffset value) => unchecked((int)value._value);
-    public override string ToString() => $"{nameof(PgoDataBlobOffset)} {{ Value = {_value} }}";
+    public PgoDataBlobBackReferenceDelta(uint Value) => _value = Value;
+    public static explicit operator PgoDataBlobBackReferenceDelta(uint value) => new(value);
+    public static explicit operator PgoDataBlobBackReferenceDelta(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(PgoDataBlobBackReferenceDelta value) => value._value;
+    public static explicit operator int(PgoDataBlobBackReferenceDelta value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(PgoDataBlobBackReferenceDelta)} {{ Value = {_value} }}";
 }
 
 /// <summary>Image offset of an opaque fixup payload.</summary>
@@ -247,7 +259,7 @@ public readonly record struct R2ROpaqueFixupPayloadOffset
     public override string ToString() => $"{nameof(R2ROpaqueFixupPayloadOffset)} {{ Value = {_value} }}";
 }
 
-/// <summary>Image offset of an external type-map inner table.</summary>
+/// <summary>Offset of an external type-map inner table, relative to its section.</summary>
 public readonly record struct ExternalTypeMapInnerHandle
 {
     private readonly uint _value;
@@ -259,7 +271,7 @@ public readonly record struct ExternalTypeMapInnerHandle
     public override string ToString() => $"{nameof(ExternalTypeMapInnerHandle)} {{ Value = {_value} }}";
 }
 
-/// <summary>Image offset of a proxy type-map inner table.</summary>
+/// <summary>Offset of a proxy type-map inner table, relative to its section.</summary>
 public readonly record struct ProxyTypeMapInnerHandle
 {
     private readonly uint _value;

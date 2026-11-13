@@ -47,15 +47,15 @@ public sealed class CurrentFormatTests
         if (sectionType == 124)
         {
             var group = Assert.Single(reader.GetExternalTypeMapsTable(section).Groups);
-            Assert.Empty(reader.GetExternalTypeMapEntries(group.InnerHandle));
-            entries = reader.GetExternalTypeMapNamedEntries(group);
+            Assert.Empty(reader.GetExternalTypeMapEntries(section, group.InnerHandle));
+            entries = reader.GetExternalTypeMapNamedEntries(section, group);
         }
 
         else
         {
             var group = Assert.Single(reader.GetProxyTypeMapsTable(section).Groups);
-            Assert.Empty(reader.GetProxyTypeMapEntries(group.InnerHandle));
-            entries = reader.GetProxyTypeMapNamedEntries(group);
+            Assert.Empty(reader.GetProxyTypeMapEntries(section, group.InnerHandle));
+            entries = reader.GetProxyTypeMapNamedEntries(section, group);
         }
         TypeMapNamedEntry namedEntry = Assert.Single(entries);
         Assert.Equal("a", namedEntry.Key);
@@ -68,7 +68,7 @@ public sealed class CurrentFormatTests
         byte[] content = [0, 2, 4, 0, 2, 0, 0, 4, 0, 2, 2, 2, 6, (byte)'a'];
         using ReadyToRunReader reader = CreateReader(28, 0, ReadyToRunSectionType.ExternalTypeMaps, content);
         var group = Assert.Single(reader.GetExternalTypeMapsTable(Assert.Single(reader.GetSections())).Groups);
-        Assert.Throws<BadImageFormatException>(() => reader.GetExternalTypeMapNamedEntries(group));
+        Assert.Throws<BadImageFormatException>(() => reader.GetExternalTypeMapNamedEntries(Assert.Single(reader.GetSections()), group));
     }
 
     [Fact]

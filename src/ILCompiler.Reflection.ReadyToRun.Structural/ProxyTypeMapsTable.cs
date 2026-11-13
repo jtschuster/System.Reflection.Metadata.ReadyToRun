@@ -118,7 +118,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 {
                     if (curParser.Offset < (uint)sectionOffset || curParser.Offset >= (uint)sectionEndOffset)
                         throw new BadImageFormatException("Proxy type-map inner table starts outside its containing section.");
-                    innerHandle = (ProxyTypeMapInnerHandle)curParser.Offset;
+                    innerHandle = (ProxyTypeMapInnerHandle)(curParser.Offset - (uint)sectionOffset);
                 }
 
                 groups.Add(new ProxyTypeMapGroup(groupRef, state, innerHandle));
@@ -132,17 +132,27 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Enumerates the inner entries of a ProxyTypeMaps group referenced by
         /// <paramref name="handle"/>. Each entry maps a key type reference to a value type reference.
         /// </summary>
-        /// <param name="handle">The inner handle from <see cref="ProxyTypeMapGroup.InnerHandle"/>.</param>
+        /// <param name="section">The ProxyTypeMaps section that contains the inner table.</param>
+        /// <param name="handle">The section-relative inner handle from <see cref="ProxyTypeMapGroup.InnerHandle"/>.</param>
         public IReadOnlyList<ProxyTypeMapEntry> GetProxyTypeMapEntries(
+            ReadyToRunSection section,
             ProxyTypeMapInnerHandle handle)
         {
             EnsureSemanticDecodingSupported(nameof(GetProxyTypeMapEntries));
             if (handle == default)
                 return Array.Empty<ProxyTypeMapEntry>();
 
-            int imageEndOffset = ImageEndOffset;
-            NativeParser innerParser = new NativeParser(_nativeReader, (uint)handle);
-            NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)imageEndOffset);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ProxyTypeMaps,
+                nameof(GetProxyTypeMapEntries));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)handle >= (uint)section.Size)
+                throw new BadImageFormatException("Proxy type-map inner-table offset is outside its section.");
+
+            uint innerOffset = checked((uint)(sectionOffset + (int)(uint)handle));
+            NativeParser innerParser = new NativeParser(_nativeReader, innerOffset);
+            NativeHashtable innerHashtable = new NativeHashtable(_nativeReader, innerParser, (uint)sectionEndOffset);
             NativeHashtable.AllEntriesEnumerator enumerator = innerHashtable.EnumerateAllEntries();
 
             var entries = new List<ProxyTypeMapEntry>();
@@ -173,12 +183,24 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         /// <param name="group">A group from <see cref="ProxyTypeMapsTable.Groups"/>.</param>
         /// <returns>The named entries, or an empty list when <see cref="ProxyTypeMapGroup.State"/> is not 2.</returns>
-        public IReadOnlyList<TypeMapNamedEntry> GetProxyTypeMapNamedEntries(ProxyTypeMapGroup group)
+        public IReadOnlyList<TypeMapNamedEntry> GetProxyTypeMapNamedEntries(
+            ReadyToRunSection section,
+            ProxyTypeMapGroup group)
         {
             EnsureSemanticDecodingSupported(nameof(GetProxyTypeMapNamedEntries));
             ArgumentNullException.ThrowIfNull(group);
+            int sectionOffset = ValidateAndGetSectionOffset(
+                section,
+                Internal.Runtime.ReadyToRunSectionType.ProxyTypeMaps,
+                nameof(GetProxyTypeMapNamedEntries));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)group.InnerHandle >= (uint)section.Size)
+                throw new BadImageFormatException("Proxy type-map inner-table offset is outside its section.");
+
             return group.State == 2
-                ? ReadTypeMapNamedEntries((uint)group.InnerHandle, ImageEndOffset)
+                ? ReadTypeMapNamedEntries(
+                    checked((uint)(sectionOffset + (int)(uint)group.InnerHandle)),
+                    sectionEndOffset)
                 : Array.Empty<TypeMapNamedEntry>();
         }
     }

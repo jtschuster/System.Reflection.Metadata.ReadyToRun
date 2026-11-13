@@ -40,6 +40,7 @@ public sealed class ApiConventionTests
         new object[] { "InliningInfoEntry" },
         new object[] { "InstanceMethodEntry" },
         new object[] { "MethodDefEntry" },
+        new object[] { "FixupCellListHandle" },
         new object[] { "PgoEntry" },
         new object[] { "RuntimeFunctionEntry" },
         new object[] { "InstanceMethodPayload" },
@@ -90,12 +91,13 @@ public sealed class ApiConventionTests
         new object[] { "InlinerListOffset" },
         new object[] { "InstanceMethodPayloadOffset" },
         new object[] { "PgoPayloadOffset" },
-        new object[] { "PgoDataBlobOffset" },
+        new object[] { "PgoDataBlobBackReferenceDelta" },
         new object[] { "R2ROpaqueFixupPayloadOffset" },
         new object[] { "ExternalTypeMapInnerHandle" },
         new object[] { "ProxyTypeMapInnerHandle" },
         new object[] { "ImportSectionIndex" },
         new object[] { "ImportCellIndex" },
+        new object[] { "FixupCellListOffset" },
     };
 
     [Theory]
@@ -319,8 +321,11 @@ public sealed class ApiConventionTests
         Type pgoEntry = RequireType("PgoEntry");
 
         Assert.NotNull(reader.GetMethod("DecodeFixupSignature", new[] { RequireType("SignatureRva"), optionsInterface }));
-        Assert.NotNull(reader.GetMethod("GetInstanceMethodPayload", new[] { instanceMethodEntry, optionsInterface }));
+        Assert.NotNull(reader.GetMethod("GetInstanceMethodPayload", new[] { instanceMethodTable, instanceMethodEntry, optionsInterface }));
         Assert.NotNull(reader.GetMethod("GetPgoPayload", new[] { pgoEntry, optionsInterface }));
+        Assert.NotNull(reader.GetMethod(
+            "GetFixupCells",
+            new[] { RequireType("ReadyToRunSection"), RequireType("FixupCellListHandle") }));
         Assert.NotNull(reader.GetMethod(
             "LookupInstanceMethodEntryPoint",
             new[]
@@ -385,16 +390,18 @@ public sealed class ApiConventionTests
     }
 
     [Fact]
-    public void TypeMapInnerLookup_DoesNotAcceptCallerSuppliedBounds()
+    public void TypeMapInnerLookup_RequiresOwningSection()
     {
         Type reader = typeof(ReadyToRunReader);
         Type externalHandle = RequireType("ExternalTypeMapInnerHandle");
         Type proxyHandle = RequireType("ProxyTypeMapInnerHandle");
 
-        Assert.NotNull(reader.GetMethod("GetExternalTypeMapEntries", new[] { externalHandle }));
-        Assert.Null(reader.GetMethod("GetExternalTypeMapEntries", new[] { externalHandle, typeof(int) }));
-        Assert.NotNull(reader.GetMethod("GetProxyTypeMapEntries", new[] { proxyHandle }));
-        Assert.Null(reader.GetMethod("GetProxyTypeMapEntries", new[] { proxyHandle, typeof(int) }));
+        Type section = RequireType("ReadyToRunSection");
+        Assert.NotNull(reader.GetMethod("GetExternalTypeMapEntries", new[] { section, externalHandle }));
+        Assert.Null(reader.GetMethod("GetExternalTypeMapEntries", new[] { externalHandle }));
+        Assert.NotNull(reader.GetMethod("GetProxyTypeMapEntries", new[] { section, proxyHandle }));
+        Assert.Null(reader.GetMethod("GetProxyTypeMapEntries", new[] { proxyHandle }));
+        Assert.Equal(RequireType("FixupCellListOffset"), RequireType("FixupCellListHandle").GetProperty("Offset")?.PropertyType);
     }
 
     private static Type RequireType(string simpleName)
