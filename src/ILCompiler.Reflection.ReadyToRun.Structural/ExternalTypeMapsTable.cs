@@ -64,8 +64,6 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// Opaque handle to the inner NativeHashtable of an ExternalTypeMaps outer entry.
     /// The underlying value is the absolute file offset of the inner hashtable header.
     /// </summary>
-    public enum ExternalTypeMapInnerHandle : uint { }
-
     /// <summary>
     /// A single entry in an ExternalTypeMaps inner NativeHashtable.
     /// Maps a UTF-8 string key (the fully-qualified external type name) to a result
@@ -118,7 +116,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 uint state = curParser.GetUnsigned();
                 ValidateTypeMapState(state);
 
-                var groupRef = new ImportFixupReference(groupSectionIdx, groupFixupIdx);
+                var groupRef = new ImportFixupReference((ImportSectionIndex)groupSectionIdx, (ImportCellIndex)groupFixupIdx);
                 ExternalTypeMapInnerHandle innerHandle = default;
 
                 if (state is 1 or 2)
@@ -178,7 +176,9 @@ namespace System.Reflection.Metadata.ReadyToRun
                 uint resultSectionIdx = curParser.GetUnsigned();
                 uint resultFixupIdx = curParser.GetUnsigned();
 
-                entries.Add(new ExternalTypeMapEntry(key, new ImportFixupReference(resultSectionIdx, resultFixupIdx)));
+                entries.Add(new ExternalTypeMapEntry(
+                    key,
+                    new ImportFixupReference((ImportSectionIndex)resultSectionIdx, (ImportCellIndex)resultFixupIdx)));
                 curParser = enumerator.GetNext();
             }
 
@@ -192,7 +192,9 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (handle == default)
                 return Array.Empty<TypeMapNamedEntry>();
             var range = GetExternalTypeMapRange(handle);
-            return range.State == 2 ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset) : Array.Empty<TypeMapNamedEntry>();
+            return range.State == 2
+                ? ReadTypeMapNamedEntries((uint)handle, range.EndOffset)
+                : Array.Empty<TypeMapNamedEntry>();
         }
 
         private void RegisterExternalTypeMapRange(

@@ -57,7 +57,6 @@ public sealed class DebugInfo
 
 public partial class ReadyToRunReader
 {
-    private readonly Dictionary<(DebugInfoOffset Offset, int StartOffset, int EndOffset), DebugInfo> _debugInfoCache = new();
     private Dictionary<DebugInfoOffset, (int StartOffset, int EndOffset)> _debugInfoRanges;
 
     /// <summary>
@@ -81,13 +80,7 @@ public partial class ReadyToRunReader
             containingEndOffset = registeredRange.EndOffset;
         }
 
-        var cacheKey = (offset, containingStartOffset, containingEndOffset);
-        if (_debugInfoCache.TryGetValue(cacheKey, out DebugInfo cached))
-        {
-            return cached;
-        }
-
-        NativeReader imageReader = ImageReader;
+        NativeReader imageReader = _nativeReader;
         Machine machine = Machine;
         ReadyToRunFormatProfile profile = FormatProfile;
         uint entryOffset = (uint)offset;
@@ -193,7 +186,6 @@ public partial class ReadyToRunReader
             ReadDebugInfoBytes(imageReader, patchpointInfoOffset, patchpointInfoByteCount).ToImmutableArray(),
             ReadDebugInfoBytes(imageReader, richDebugInfoOffset, richDebugInfoByteCount).ToImmutableArray(),
             ReadDebugInfoBytes(imageReader, asyncInfoOffset, asyncInfoByteCount).ToImmutableArray());
-        _debugInfoCache[cacheKey] = parsed;
         return parsed;
 
         static byte[] ReadDebugInfoBytes(NativeReader imageReader, int offset, uint byteCount)

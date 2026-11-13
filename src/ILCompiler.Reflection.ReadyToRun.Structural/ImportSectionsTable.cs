@@ -102,14 +102,14 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             for (int i = 0; i < count; i++)
             {
-                int sectionRva = this.ImageReader.ReadInt32(ref offset);
-                int sectionSize = this.ImageReader.ReadInt32(ref offset);
-                var flags = (ReadyToRunImportSectionFlags)this.ImageReader.ReadUInt16(ref offset);
-                var type = (ReadyToRunImportSectionType)this.ImageReader.ReadByte(ref offset);
-                byte encodedEntrySize = this.ImageReader.ReadByte(ref offset);
+                int sectionRva = _nativeReader.ReadInt32(ref offset);
+                int sectionSize = _nativeReader.ReadInt32(ref offset);
+                var flags = (ReadyToRunImportSectionFlags)_nativeReader.ReadUInt16(ref offset);
+                var type = (ReadyToRunImportSectionType)_nativeReader.ReadByte(ref offset);
+                byte encodedEntrySize = _nativeReader.ReadByte(ref offset);
 
-                int signatureRva = this.ImageReader.ReadInt32(ref offset);
-                int auxiliaryDataRva = this.ImageReader.ReadInt32(ref offset);
+                int signatureRva = _nativeReader.ReadInt32(ref offset);
+                int auxiliaryDataRva = _nativeReader.ReadInt32(ref offset);
                 if (sectionSize < 0)
                     throw new BadImageFormatException("Import section descriptor contains a negative section size.");
 
@@ -182,12 +182,8 @@ namespace System.Reflection.Metadata.ReadyToRun
                 ValidateAndGetRvaRange(rva, checked(length + 1), "Import signature and GC reference map");
                 rva = checked(rva + (uint)length);
             }
-            return new ImportSignature(map, (SignatureRva)rva, DecodeFixupSignature(checked((int)rva)));
+            return new ImportSignature(map, (SignatureRva)rva, DecodeFixupSignature((SignatureRva)rva));
         }
     }
 
-    public enum SignatureRva : uint {}
-    public enum SignatureTableRva : uint {}
-    public enum ImportSlotTableRva : uint {}
-    public enum AuxiliaryDataTableRva : uint {}
 }

@@ -8,7 +8,7 @@ using System.Reflection.PortableExecutable;
 namespace System.Reflection.Metadata.ReadyToRun;
 
 /// <summary>WebAssembly frame size and virtual instruction-pointer span.</summary>
-public sealed class WasmUnwindInfo : BaseUnwindInfo
+internal sealed class WasmUnwindInfo : BaseUnwindInfo
 {
     public uint FrameSize { get; }
     public uint VirtualIPCount { get; }
@@ -19,8 +19,6 @@ public sealed class WasmUnwindInfo : BaseUnwindInfo
 
 public partial class ReadyToRunReader
 {
-    private readonly Dictionary<UnwindInfoRva, BaseUnwindInfo> _unwindInfoCache = new();
-
     /// <summary>
     /// Resolve an <see cref="UnwindInfoRva"/> to its parsed unwind information.
     /// </summary>
@@ -28,27 +26,23 @@ public partial class ReadyToRunReader
     /// Crossgen2 emitter: per-RuntimeFunction unwind data attached to <c>MethodWithGCInfo</c>
     /// (for x64/arm64 this is the PE <c>.pdata</c>/<c>xdata</c> referenced by <c>RuntimeFunctionsTableNode</c> entries).
     /// </remarks>
-    public BaseUnwindInfo GetUnwindInfo(UnwindInfoRva handle)
+    internal BaseUnwindInfo GetUnwindInfo(UnwindInfoRva handle)
     {
         EnsureSemanticDecodingSupported(nameof(GetUnwindInfo));
 
-        if (_unwindInfoCache.TryGetValue(handle, out BaseUnwindInfo cached))
-            return cached;
-
-        int unwindOffset = GetOffsetForRVA((int)handle);
+        int unwindOffset = (int)GetOffsetForRVA((ImageRVA)(uint)handle);
         BaseUnwindInfo result = Machine switch
         {
-            Machine.I386 => new x86.UnwindInfo(ImageReader, unwindOffset),
-            Machine.Amd64 => new Amd64.UnwindInfo(ImageReader, unwindOffset),
-            Machine.ArmThumb2 => new Arm.UnwindInfo(ImageReader, unwindOffset),
-            Machine.Arm64 => new Arm64.UnwindInfo(ImageReader, unwindOffset),
-            Machine.LoongArch64 => new LoongArch64.UnwindInfo(ImageReader, unwindOffset),
-            Machine.RiscV64 => new RiscV64.UnwindInfo(ImageReader, unwindOffset),
+            Machine.I386 => new x86.UnwindInfo(_nativeReader, unwindOffset),
+            Machine.Amd64 => new Amd64.UnwindInfo(_nativeReader, unwindOffset),
+            Machine.ArmThumb2 => new Arm.UnwindInfo(_nativeReader, unwindOffset),
+            Machine.Arm64 => new Arm64.UnwindInfo(_nativeReader, unwindOffset),
+            Machine.LoongArch64 => new LoongArch64.UnwindInfo(_nativeReader, unwindOffset),
+            Machine.RiscV64 => new RiscV64.UnwindInfo(_nativeReader, unwindOffset),
             WasmMachine.Wasm32 => ReadWasmUnwindInfo(handle, unwindOffset),
             _ => throw new NotSupportedException($"Unsupported unwind info machine '{Machine}'."),
         };
 
-        _unwindInfoCache[handle] = result;
         return result;
     }
 

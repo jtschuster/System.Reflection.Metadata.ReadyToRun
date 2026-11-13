@@ -42,9 +42,9 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             for (int i = 0; i < count; i++)
             {
-                int corHeaderRva = _nativeReader.ReadInt32(ref offset);
+                var corHeaderRva = (ImageRVA)_nativeReader.ReadUInt32(ref offset);
                 int corHeaderSize = _nativeReader.ReadInt32(ref offset);
-                int assemblyHeaderRva = _nativeReader.ReadInt32(ref offset);
+                var assemblyHeaderRva = (ImageRVA)_nativeReader.ReadUInt32(ref offset);
                 int assemblyHeaderSize = _nativeReader.ReadInt32(ref offset);
                 entries.Add(new ComponentAssemblyEntry(corHeaderRva, corHeaderSize, assemblyHeaderRva, assemblyHeaderSize));
             }
@@ -62,7 +62,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         public const int Size = 4 * sizeof(int);
 
         /// <summary>RVA of the COR header for this assembly.</summary>
-        public int CorHeaderRva { get; }
+        public ImageRVA CorHeaderRva { get; }
 
         /// <summary>Size of the COR header.</summary>
         public int CorHeaderSize { get; }
@@ -75,12 +75,12 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <see cref="ReadyToRunHeader.ReadReadyToRunCoreHeader(ref int)"/> at the
         /// corresponding file offset (use <see cref="ReadyToRunReader.GetOffsetForRVA"/>).
         /// </remarks>
-        public int AssemblyHeaderRva { get; }
+        public ImageRVA AssemblyHeaderRva { get; }
 
         /// <summary>Size of the per-assembly R2R header.</summary>
         public int AssemblyHeaderSize { get; }
 
-        internal ComponentAssemblyEntry(int corHeaderRva, int corHeaderSize, int assemblyHeaderRva, int assemblyHeaderSize)
+        internal ComponentAssemblyEntry(ImageRVA corHeaderRva, int corHeaderSize, ImageRVA assemblyHeaderRva, int assemblyHeaderSize)
         {
             CorHeaderRva = corHeaderRva;
             CorHeaderSize = corHeaderSize;

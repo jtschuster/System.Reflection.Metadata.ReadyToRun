@@ -77,7 +77,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 // Read the group type reference: (importSectionIndex, fixupIndex).
                 uint groupSectionIdx = curParser.GetUnsigned();
                 uint groupFixupIdx = curParser.GetUnsigned();
-                var groupRef = new ImportFixupReference(groupSectionIdx, groupFixupIdx);
+                var groupRef = new ImportFixupReference((ImportSectionIndex)groupSectionIdx, (ImportCellIndex)groupFixupIdx);
 
                 uint moduleCount = curParser.GetUnsigned();
                 long remainingByteCount = sectionEndOffset - (long)curParser.Offset;
@@ -93,7 +93,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 {
                     uint moduleSectionIdx = curParser.GetUnsigned();
                     uint moduleFixupIdx = curParser.GetUnsigned();
-                    moduleRefs.Add(new ImportFixupReference(moduleSectionIdx, moduleFixupIdx));
+                    moduleRefs.Add(new ImportFixupReference((ImportSectionIndex)moduleSectionIdx, (ImportCellIndex)moduleFixupIdx));
                 }
 
                 entries.Add(new TypeMapAssemblyTargetsEntry(groupRef, moduleRefs));

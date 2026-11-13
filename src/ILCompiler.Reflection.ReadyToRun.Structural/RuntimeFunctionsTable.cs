@@ -26,6 +26,11 @@ namespace System.Reflection.Metadata.ReadyToRun
 
     public partial class ReadyToRunReader
     {
+        /// <summary>
+        /// Reads the runtime function table. Each entry's <see cref="RuntimeFunctionEntry.StartPCode"/>
+        /// is an encoded code location, not always an RVA; on WebAssembly it is a virtual
+        /// instruction-pointer index with bit 31 marking a funclet.
+        /// </summary>
         public RuntimeFunctionsTable GetRuntimeFunctionsTable(ReadyToRunSection section)
         {
             int offset = ValidateAndGetSectionOffset(
@@ -73,9 +78,9 @@ namespace System.Reflection.Metadata.ReadyToRun
     public sealed class RuntimeFunctionEntry
     {
         /// <summary>
-        /// Target code pointer for the start of the runtime function.
-        /// On ARM Thumb2 this includes the Thumb bit and is not a plain RVA. On WebAssembly
-        /// this encodes a virtual instruction-pointer index with a funclet flag in bit 31.
+        /// Encoded code location for the start of the runtime function. It is usually an RVA;
+        /// on ARM Thumb2 it includes the Thumb bit, and on WebAssembly it is a virtual
+        /// instruction-pointer index with bit 31 marking a funclet.
         /// </summary>
         public PCode StartPCode { get; }
 
@@ -93,16 +98,4 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
     }
 
-    /// <summary>
-    /// Opaque handle representing a target code pointer encoded in an R2R image.
-    /// This may differ from the raw code RVA by an architecture-specific code bit
-    /// such as the ARM Thumb bit.
-    /// </summary>
-    public enum PCode : uint {}
-
-    /// <summary>Opaque handle representing an RVA pointing to code in the image.</summary>
-    public enum CodeRva : uint {}
-
-    /// <summary>Opaque handle representing an RVA pointing to unwind information.</summary>
-    public enum UnwindInfoRva : uint {}
 }

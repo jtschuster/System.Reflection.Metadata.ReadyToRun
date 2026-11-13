@@ -91,16 +91,16 @@ namespace System.Reflection.Metadata.ReadyToRun
                 return null;
             }
 
-            int offset = GetOffsetForRVA((int)handle);
+            int offset = (int)GetOffsetForRVA((ImageRVA)(uint)handle);
             var clauses = new List<EHClause>(clauseCount);
             for (int i = 0; i < clauseCount; i++)
             {
-                var flags = (CorExceptionFlag)ImageReader.ReadUInt32(ref offset);
-                uint tryOffset = ImageReader.ReadUInt32(ref offset);
-                uint tryEnd = ImageReader.ReadUInt32(ref offset);
-                uint handlerOffset = ImageReader.ReadUInt32(ref offset);
-                uint handlerEnd = ImageReader.ReadUInt32(ref offset);
-                uint classTokenOrFilterOffset = ImageReader.ReadUInt32(ref offset);
+                var flags = (CorExceptionFlag)_nativeReader.ReadUInt32(ref offset);
+                uint tryOffset = _nativeReader.ReadUInt32(ref offset);
+                uint tryEnd = _nativeReader.ReadUInt32(ref offset);
+                uint handlerOffset = _nativeReader.ReadUInt32(ref offset);
+                uint handlerEnd = _nativeReader.ReadUInt32(ref offset);
+                uint classTokenOrFilterOffset = _nativeReader.ReadUInt32(ref offset);
                 clauses.Add(new EHClause(flags, tryOffset, tryEnd, handlerOffset, handlerEnd, classTokenOrFilterOffset));
             }
 

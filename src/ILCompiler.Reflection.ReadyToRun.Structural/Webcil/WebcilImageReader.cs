@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO;
 using System.Reflection.Metadata;
@@ -23,10 +24,11 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
     /// r2rdump-only WASM disassembly helpers (elem/type/function section parsing) are intentionally
     /// omitted because the structural reader never disassembles code.
     /// </remarks>
-    public sealed class WebcilImageReader : IPlatformBinaryReader
+    internal sealed class WebcilImageReader : IPlatformBinaryReader
     {
-        private readonly byte[] _image;
-        private readonly GCHandle _pinnedArray;
+        private readonly ReadOnlyMemory<byte> _image;
+        private readonly unsafe byte* _imagePointer;
+        private MemoryHandle _pin;
         private readonly WebcilHeader _header;
         private readonly WebcilSectionHeader[] _sections;
         private readonly long _webcilOffset;
@@ -40,32 +42,37 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
         /// <summary>True when this Webcil image is wrapped inside a WASM module.</summary>
         public bool IsWasmWrapped => _webcilOffset > 0;
 
-        public WebcilImageReader(byte[] image)
+        /// <summary>
+        /// Creates a reader over <paramref name="image"/> without copying it. The memory must not be
+        /// modified or released until this reader is disposed.
+        /// </summary>
+        public unsafe WebcilImageReader(ReadOnlyMemory<byte> image)
         {
-            _image = image ?? throw new ArgumentNullException(nameof(image));
-            _pinnedArray = GCHandle.Alloc(_image, GCHandleType.Pinned);
+            _image = image;
+            _pin = image.Pin();
+            _imagePointer = (byte*)_pin.Pointer;
 
             try
             {
+                ReadOnlySpan<byte> span = image.Span;
                 _webcilOffset = 0;
 
-                if (IsWasmModule(_image))
+                if (IsWasmModule(span))
                 {
-                    if (!TryFindWebcilInWasm(_image, out _webcilOffset))
+                    if (!TryFindWebcilInWasm(span, out _webcilOffset))
                         throw new BadImageFormatException("WASM module does not contain a Webcil payload");
                 }
 
-                if (!TryReadHeader(_image, _webcilOffset, out _header))
+                if (!TryReadHeader(span, _webcilOffset, out _header))
                     throw new BadImageFormatException("Not a valid Webcil file");
 
-                _sections = ReadSections(_image, _webcilOffset, _header);
+                _sections = ReadSections(span, _webcilOffset, _header);
 
                 ReadCorHeader(out _corFlags, out _corHeaderMetadataDirectory, out _managedNativeHeaderDirectory);
             }
             catch
             {
-                if (_pinnedArray.IsAllocated)
-                    _pinnedArray.Free();
+                _pin.Dispose();
                 throw;
             }
         }
@@ -83,16 +90,15 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
 
         private void Dispose(bool _)
         {
-            if (_pinnedArray.IsAllocated)
-                _pinnedArray.Free();
+            _pin.Dispose();
         }
 
         /// <summary>
-        /// Detects whether a byte array is a Webcil image (raw or embedded inside a WASM module).
+        /// Detects whether a byte span is a Webcil image (raw or embedded inside a WASM module).
         /// </summary>
-        public static bool IsWebcilImage(byte[] image)
+        public static bool IsWebcilImage(ReadOnlySpan<byte> image)
         {
-            if (image is null || image.Length < 4)
+            if (image.Length < 4)
                 return false;
 
             uint magic = BinaryPrimitives.ReadUInt32LittleEndian(image);
@@ -138,25 +144,26 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             }
         }
 
-        public int GetOffset(int rva)
+        public ImageOffset GetOffset(ImageRVA rva)
         {
+            uint address = (uint)rva;
             foreach (WebcilSectionHeader section in _sections)
             {
-                if ((uint)rva >= section.VirtualAddress && (uint)rva < (ulong)section.VirtualAddress + section.VirtualSize)
+                if (address >= section.VirtualAddress && address < (ulong)section.VirtualAddress + section.VirtualSize)
                 {
-                    uint sectionRelative = (uint)rva - section.VirtualAddress;
+                    uint sectionRelative = address - section.VirtualAddress;
                     if (sectionRelative >= section.SizeOfRawData)
-                        throw new BadImageFormatException($"RVA 0x{rva:X} maps beyond section raw data");
+                        throw new BadImageFormatException($"RVA 0x{address:X} maps beyond section raw data");
 
                     long fileOffset = section.PointerToRawData + (long)sectionRelative + _webcilOffset;
                     if (fileOffset < 0 || fileOffset > _image.Length)
-                        throw new BadImageFormatException($"RVA 0x{rva:X} maps outside the image");
+                        throw new BadImageFormatException($"RVA 0x{address:X} maps outside the image");
 
-                    return checked((int)fileOffset);
+                    return (ImageOffset)checked((int)fileOffset);
                 }
             }
 
-            throw new BadImageFormatException($"RVA 0x{rva:X} not found in any Webcil section");
+            throw new BadImageFormatException($"RVA 0x{address:X} not found in any Webcil section");
         }
 
         /// <summary>
@@ -179,18 +186,18 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             throw new BadImageFormatException($"RVA 0x{rva:X} not found in any Webcil section");
         }
 
-        public bool TryGetReadyToRunHeader(out int rva, out bool isComposite)
+        public bool TryGetReadyToRunHeader(out ImageRVA rva, out bool isComposite)
         {
             // Webcil R2R images use the COR header's ManagedNativeHeaderDirectory, same as a regular
             // (non-composite) PE R2R image.
             if ((_corFlags & CorFlags.ILLibrary) != 0 && _managedNativeHeaderDirectory.Size != 0)
             {
-                rva = _managedNativeHeaderDirectory.RelativeVirtualAddress;
+                rva = (ImageRVA)_managedNativeHeaderDirectory.RelativeVirtualAddress;
                 isComposite = false;
                 return true;
             }
 
-            rva = 0;
+            rva = default;
             isComposite = false;
             return false;
         }
@@ -200,34 +207,34 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             if (_corHeaderMetadataDirectory.Size == 0)
                 return null;
 
-            int metadataOffset = GetOffset(_corHeaderMetadataDirectory.RelativeVirtualAddress);
+            ImageOffset metadataOffset = GetOffset((ImageRVA)_corHeaderMetadataDirectory.RelativeVirtualAddress);
             return GetManifestAssemblyMetadata(metadataOffset, _corHeaderMetadataDirectory.Size);
         }
 
-        public unsafe MetadataReader GetManifestAssemblyMetadata(int offset, int size)
+        public unsafe MetadataReader GetManifestAssemblyMetadata(ImageOffset offset, int size)
         {
             // offset is an absolute file offset into the (already pinned) image bytes; it has had
             // _webcilOffset applied already by GetOffset, so we must not add it again here.
-            if (size <= 0 || offset < 0 || (long)offset + size > _image.Length)
+            if (size <= 0 || (uint)offset > int.MaxValue || (long)(uint)offset + size > _image.Length)
                 throw new BadImageFormatException("Metadata range is outside the image");
 
-            return new MetadataReader((byte*)Unsafe.AsPointer(ref _image[offset]), size);
+            return new MetadataReader(_imagePointer + (int)offset, size);
         }
 
         /// <summary>
         /// Webcil images do not have a PE ImageBase, so VA-to-offset conversion
         /// is not supported. Always returns <see langword="false"/>.
         /// </summary>
-        public bool TryGetFileOffsetFromImageVA(long imageVA, out int fileOffset)
+        public bool TryGetFileOffsetFromImageVA(long imageVA, out ImageOffset fileOffset)
         {
-            fileOffset = 0;
+            fileOffset = default;
             return false;
         }
 
         private void ReadCorHeader(out CorFlags flags, out DirectoryEntry metadataDirectory, out DirectoryEntry managedNativeHeaderDirectory)
         {
-            ReadOnlySpan<byte> image = _image;
-            int corHeaderOffset = GetOffset((int)_header.PeCliHeaderRva);
+            ReadOnlySpan<byte> image = _image.Span;
+            int corHeaderOffset = (int)GetOffset((ImageRVA)_header.PeCliHeaderRva);
 
             // CorHeader layout:
             // int32  cb (byte count)
@@ -269,14 +276,14 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             managedNativeHeaderDirectory = new DirectoryEntry(managedNativeRva, managedNativeSize);
         }
 
-        private static bool TryReadHeader(byte[] image, long offset, out WebcilHeader header)
+        private static bool TryReadHeader(ReadOnlySpan<byte> image, long offset, out WebcilHeader header)
         {
             header = default;
 
             if (offset < 0 || offset + WebcilConstants.V0HeaderSize > image.Length)
                 return false;
 
-            ReadOnlySpan<byte> span = image.AsSpan((int)offset);
+            ReadOnlySpan<byte> span = image.Slice((int)offset);
             header.Id = BinaryPrimitives.ReadUInt32LittleEndian(span);
             header.VersionMajor = BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(4));
             header.VersionMinor = BinaryPrimitives.ReadUInt16LittleEndian(span.Slice(6));
@@ -311,7 +318,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             return true;
         }
 
-        private static WebcilSectionHeader[] ReadSections(byte[] image, long webcilOffset, WebcilHeader header)
+        private static WebcilSectionHeader[] ReadSections(ReadOnlySpan<byte> image, long webcilOffset, WebcilHeader header)
         {
             int headerSize = header.VersionMajor >= 1 ? WebcilConstants.V1HeaderSize : WebcilConstants.V0HeaderSize;
             long sectionDirectoryOffset = webcilOffset + headerSize;
@@ -322,7 +329,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             var sections = new WebcilSectionHeader[header.CoffSections];
             for (int i = 0; i < header.CoffSections; i++)
             {
-                ReadOnlySpan<byte> span = image.AsSpan((int)(sectionDirectoryOffset + (i * WebcilConstants.SectionHeaderSize)));
+                ReadOnlySpan<byte> span = image.Slice((int)(sectionDirectoryOffset + (i * WebcilConstants.SectionHeaderSize)));
                 sections[i] = new WebcilSectionHeader(
                     virtualSize: BinaryPrimitives.ReadUInt32LittleEndian(span),
                     virtualAddress: BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(4)),
@@ -333,7 +340,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             return sections;
         }
 
-        private static bool IsWasmModule(byte[] image)
+        private static bool IsWasmModule(ReadOnlySpan<byte> image)
         {
             // WASM magic: '\0asm'
             return image.Length >= 4
@@ -343,7 +350,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
                 && image[3] == 0x6D;
         }
 
-        private static bool TryFindWebcilInWasm(byte[] image, out long webcilOffset)
+        private static bool TryFindWebcilInWasm(ReadOnlySpan<byte> image, out long webcilOffset)
         {
             webcilOffset = 0;
 
@@ -379,7 +386,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
 
                             if (dataSize >= 4 && (long)offset + dataSize <= sectionEnd)
                             {
-                                uint magic = BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(offset));
+                                uint magic = BinaryPrimitives.ReadUInt32LittleEndian(image.Slice(offset));
                                 if (magic == WebcilConstants.WEBCIL_MAGIC && TryReadHeader(image, offset, out _))
                                 {
                                     webcilOffset = offset;
@@ -419,7 +426,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
             return false;
         }
 
-        private static bool TrySkipConstExpr(byte[] data, ref int offset, int end)
+        private static bool TrySkipConstExpr(ReadOnlySpan<byte> data, ref int offset, int end)
         {
             // Skip a WASM constant expression (terminated by 0x0B = end).
             while (offset < end)
@@ -463,7 +470,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Webcil
         /// Reads an unsigned LEB128 value, returning false if it runs past <paramref name="end"/> or
         /// would not fit in a uint.
         /// </summary>
-        private static bool TryReadLebU32(byte[] data, ref int offset, int end, out uint value)
+        private static bool TryReadLebU32(ReadOnlySpan<byte> data, ref int offset, int end, out uint value)
         {
             value = 0;
             int shift = 0;

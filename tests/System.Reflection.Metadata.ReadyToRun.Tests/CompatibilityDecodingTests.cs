@@ -169,8 +169,8 @@ public sealed class CompatibilityDecodingTests
         Assert.Throws<NotSupportedException>(() => DecodeFixup(store, ReadyToRunSignatureDecodingOptions.Strict(26, 0)));
         var result = DecodeFixup(store, ReadyToRunSignatureDecodingOptions.Strict(26, 1));
         var payload = Assert.IsType<R2RStoreMultiCallableAddrFixupPayload>(R2RFixupSignature.FromSignature(result.Signature).Payload);
-        Assert.Equal(0x12345678u, payload.TargetRva);
-        Assert.Equal(0x90ABCDEFu, payload.LocationRva);
+        Assert.Equal((ImageRVA)0x12345678u, payload.TargetRva);
+        Assert.Equal((ImageRVA)0x90ABCDEFu, payload.LocationRva);
         Assert.Equal(store.Length, result.EndOffset);
 
         byte[] method = { 0x3B, 0x00, 0x01 };

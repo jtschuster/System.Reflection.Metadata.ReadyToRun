@@ -21,7 +21,8 @@ public sealed class WasmAsyncResumeInfoTable
 {
     public IReadOnlyList<WasmAsyncResumeInfoChunk> Chunks { get; }
 
-    internal WasmAsyncResumeInfoTable(IReadOnlyList<WasmAsyncResumeInfoChunk> chunks) => Chunks = chunks;
+    internal WasmAsyncResumeInfoTable(IReadOnlyList<WasmAsyncResumeInfoChunk> chunks)
+        => Chunks = chunks;
 }
 
 public partial class ReadyToRunReader

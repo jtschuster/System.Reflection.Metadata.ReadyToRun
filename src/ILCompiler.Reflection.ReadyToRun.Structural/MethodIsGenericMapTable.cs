@@ -58,14 +58,15 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         /// <summary>
         /// Returns whether the MethodDef at the given 1-based RID is generic.
-        /// Returns false if the RID is out of range.
+        /// Throws when the RID is outside the table.
         /// </summary>
         public bool IsMethodGeneric(MethodIsGenericMapTable table, MethodRid methodRid)
         {
             EnsureSemanticDecodingSupported(nameof(IsMethodGeneric));
+            ArgumentNullException.ThrowIfNull(table);
             int rid = (int)methodRid;
             if (rid < 1 || rid > table.Count)
-                return false;
+                throw new ArgumentOutOfRangeException(nameof(methodRid));
 
             int index = rid - 1;
             int byteIndex = index / 8;

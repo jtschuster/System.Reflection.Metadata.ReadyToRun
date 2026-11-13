@@ -25,7 +25,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         internal ReadyToRunCoreHeader(uint flags, IReadOnlyList<ReadyToRunSection> sections)
         {
             Flags = flags;
-            Sections = new List<ReadyToRunSection>(sections).AsReadOnly();
+            Sections = sections;
         }
     }
 
@@ -84,7 +84,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             MajorVersion = majorVersion;
             MinorVersion = minorVersion;
             Flags = flags;
-            Sections = new List<ReadyToRunSection>(sections).AsReadOnly();
+            Sections = sections;
             FormatSupport = ReadyToRunFormatProfile.Create(majorVersion, minorVersion).Support;
         }
 
@@ -116,18 +116,21 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>
         /// Reads a ReadyToRun header from the image at the given file offset.
         /// </summary>
-        /// <param name="imageOffset">Index in the image byte array to the start of the ReadyToRun header</param>
+        /// <param name="imageOffset">File offset of the ReadyToRun header.</param>
         /// <exception cref="BadImageFormatException">The signature must be 0x00525452 ("RTR")</exception>
-        public ReadyToRunHeader ReadReadyToRunHeader(int imageOffset)
+        public ReadyToRunHeader ReadReadyToRunHeader(ImageOffset imageOffset)
         {
+            if ((uint)imageOffset > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(imageOffset), "Image offset exceeds the supported reader range.");
+            int currentOffset = (int)imageOffset;
             try
             {
-                uint signature = _nativeReader.ReadUInt32(ref imageOffset);
+                uint signature = _nativeReader.ReadUInt32(ref currentOffset);
                 if (signature != ReadyToRunHeader.READYTORUN_SIGNATURE)
                     throw new BadImageFormatException($"Incorrect R2R header signature: 0x{signature:X8}.");
 
-                ushort majorVersion = _nativeReader.ReadUInt16(ref imageOffset);
-                ushort minorVersion = _nativeReader.ReadUInt16(ref imageOffset);
+                ushort majorVersion = _nativeReader.ReadUInt16(ref currentOffset);
+                ushort minorVersion = _nativeReader.ReadUInt16(ref currentOffset);
                 ReadyToRunFormatProfile profile = ReadyToRunFormatProfile.Create(majorVersion, minorVersion);
                 if (ValidationMode == ReadyToRunValidationMode.Strict && !profile.IsSupported)
                 {
@@ -135,7 +138,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                         $"ReadyToRun format version {majorVersion}.{minorVersion} is not a known CoreCLR format revision.");
                 }
 
-                ReadyToRunCoreHeader coreHeader = ReadReadyToRunCoreHeader(ref imageOffset, profile);
+                ReadyToRunCoreHeader coreHeader = ReadReadyToRunCoreHeader(ref currentOffset, profile);
                 return new ReadyToRunHeader(signature, majorVersion, minorVersion, coreHeader.Flags, coreHeader.Sections);
             }
             catch (ArgumentOutOfRangeException exception)
@@ -153,8 +156,15 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// Reads the core header fields (flags + sections) shared by both the global header
         /// and per-assembly headers in composite R2R images.
         /// </summary>
-        public ReadyToRunCoreHeader ReadReadyToRunCoreHeader(ref int curOffset)
-            => ReadReadyToRunCoreHeader(ref curOffset, FormatProfile);
+        public ReadyToRunCoreHeader ReadReadyToRunCoreHeader(ref ImageOffset imageOffset)
+        {
+            if ((uint)imageOffset > int.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(imageOffset), "Image offset exceeds the supported reader range.");
+            int currentOffset = (int)imageOffset;
+            ReadyToRunCoreHeader header = ReadReadyToRunCoreHeader(ref currentOffset, FormatProfile);
+            imageOffset = (ImageOffset)currentOffset;
+            return header;
+        }
 
         private ReadyToRunCoreHeader ReadReadyToRunCoreHeader(
             ref int curOffset,

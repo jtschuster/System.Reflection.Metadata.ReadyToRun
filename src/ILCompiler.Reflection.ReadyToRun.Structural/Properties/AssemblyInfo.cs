@@ -4,3 +4,4 @@
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("System.Reflection.Metadata.ReadyToRun.Tests")]
+[assembly: InternalsVisibleTo("ILCompiler.Reflection.ReadyToRun.Structural.Assertions")]

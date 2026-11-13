@@ -54,15 +54,17 @@ namespace System.Reflection.Metadata.ReadyToRun
 
         /// <summary>
         /// Returns the enclosing type RID for the TypeDef at the given 1-based RID.
-        /// Returns 0 if the type is not nested or the RID is out of range.
+        /// Returns 0 if the type is not nested. Throws when the RID is outside the table.
         /// </summary>
-        public int GetEnclosingTypeRid(EnclosingTypeMapTable table, int typeDefRid)
+        public TypeRid GetEnclosingTypeRid(EnclosingTypeMapTable table, TypeRid typeDefRid)
         {
             EnsureSemanticDecodingSupported(nameof(GetEnclosingTypeRid));
-            if (typeDefRid < 1 || typeDefRid > table.Count)
-                return 0;
+            ArgumentNullException.ThrowIfNull(table);
+            int rid = (int)typeDefRid;
+            if (rid < 1 || rid > table.Count)
+                throw new ArgumentOutOfRangeException(nameof(typeDefRid));
 
-            return table.EnclosingTypeRids[typeDefRid - 1];
+            return (TypeRid)(uint)table.EnclosingTypeRids[rid - 1];
         }
     }
 }

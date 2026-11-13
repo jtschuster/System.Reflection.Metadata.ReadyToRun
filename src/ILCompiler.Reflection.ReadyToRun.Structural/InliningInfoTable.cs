@@ -125,5 +125,4 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// Opaque handle to a nibble-encoded inliner RID list in the v1 InliningInfo section.
     /// The underlying value is the absolute file offset of the nibble stream.
     /// </summary>
-    public enum InlinerListOffset : uint { }
 }

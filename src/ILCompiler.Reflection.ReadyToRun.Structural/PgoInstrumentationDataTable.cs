@@ -133,11 +133,6 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// Pass to <see cref="ReadyToRunReader.GetPgoPayload(PgoEntry)"/> to decode.
     /// The underlying value is the file offset (not RVA) of the payload start.
     /// </summary>
-    public enum PgoPayloadOffset : uint { }
-
-    /// <summary>Opaque file offset to a PGO schema data blob.</summary>
-    public enum PgoDataBlobOffset : uint { }
-
     /// <summary>
     /// A single entry in the PgoInstrumentationData hashtable.
     /// Holds a handle to the payload and the bucketing hash; use

@@ -37,6 +37,24 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     }
 
     [Fact]
+    public void ReadOnlyMemoryConstructor_ReadsCallerPEMemoryWithoutCopying()
+    {
+        byte[] image = File.ReadAllBytes(_image.AssemblyPath);
+        const int Padding = 5;
+        byte[] buffer = new byte[image.Length + Padding];
+        image.CopyTo(buffer, Padding);
+
+        using var reader = new ReadyToRunReader(buffer.AsMemory(Padding));
+        ReadyToRunSection section = Section(reader, ReadyToRunSectionType.RuntimeFunctions);
+        ImageOffset offset = reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+        byte original = reader.ReadByte(offset);
+
+        buffer[Padding + (int)offset] = unchecked((byte)~original);
+
+        Assert.Equal(unchecked((byte)~original), reader.ReadByte(offset));
+    }
+
+    [Fact]
     public void RuntimeFunctionsTable_HasEntries()
     {
         using ReaderScope scope = _image.OpenReader();
@@ -263,8 +281,8 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
 
     private static uint ReadBucketMask(ReadyToRunReader reader, ReadyToRunSection section)
     {
-        int offset = reader.GetOffsetForRVA(section.RelativeVirtualAddress);
-        byte header = reader.ImageReader.ReadByte(ref offset);
+        int offset = (int)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+        byte header = reader.ReadByte((ImageOffset)(uint)offset);
         int numberOfBucketsShift = header >> 2;
         return (uint)((1 << numberOfBucketsShift) - 1);
     }

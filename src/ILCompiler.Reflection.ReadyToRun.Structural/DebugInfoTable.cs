@@ -48,7 +48,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                         (DebugInfoOffset)(uint)offset,
                         sectionOffset,
                         sectionEndOffset);
-                    entries.Add(new DebugInfoEntry((DebugInfoOffset)offset));
+                    entries.Add(new DebugInfoEntry((RuntimeFunctionIndex)i, (DebugInfoOffset)offset));
                 }
             }
 
@@ -61,14 +61,17 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </summary>
     public sealed class DebugInfoEntry
     {
+        /// <summary>Index into the RuntimeFunctions table for this sparse-array slot.</summary>
+        public RuntimeFunctionIndex RuntimeFunctionIndex { get; }
+
         /// <summary>File offset of the debug info data.</summary>
         public DebugInfoOffset DebugInfoOffset { get; }
 
-        internal DebugInfoEntry(DebugInfoOffset debugInfoOffset)
+        internal DebugInfoEntry(RuntimeFunctionIndex runtimeFunctionIndex, DebugInfoOffset debugInfoOffset)
         {
+            RuntimeFunctionIndex = runtimeFunctionIndex;
             DebugInfoOffset = debugInfoOffset;
         }
     }
 
-    public enum DebugInfoOffset : uint {}
 }

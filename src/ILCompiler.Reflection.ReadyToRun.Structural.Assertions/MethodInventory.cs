@@ -86,9 +86,9 @@ internal sealed class MethodInventory
             {
                 int entryCount = reader.GetImportSectionEntryCount(entry);
                 var sigs = new R2RFixupSignature[entryCount];
-                if ((int)entry.SignatureTableRva != 0 && entryCount > 0)
+                if ((uint)entry.SignatureTableRva != 0 && entryCount > 0)
                 {
-                    int sigTableOffset = reader.GetOffsetForRVA((int)entry.SignatureTableRva);
+                    int sigTableOffset = (int)reader.GetOffsetForRVA((ImageRVA)(uint)entry.SignatureTableRva);
                     for (int i = 0; i < entryCount; i++)
                     {
                         int sigPtrOffset = sigTableOffset + i * sizeof(int);
@@ -97,7 +97,7 @@ internal sealed class MethodInventory
                             continue;
                         try
                         {
-                            sigs[i] = reader.DecodeFixupSignature((int)sigRva);
+                            sigs[i] = reader.DecodeFixupSignature((SignatureRva)sigRva);
                         }
                         catch
                         {
@@ -169,12 +169,12 @@ internal sealed class MethodInventory
         for (int componentIdx = 0; componentIdx < componentTable.Entries.Count; componentIdx++)
         {
             ComponentAssemblyEntry entry = componentTable.Entries[componentIdx];
-            if (entry.AssemblyHeaderRva == 0 || entry.AssemblyHeaderSize == 0)
+            if ((uint)entry.AssemblyHeaderRva == 0 || entry.AssemblyHeaderSize == 0)
                 continue;
 
             int moduleIndex = componentIdx + resolver.ComponentAssemblyIndexOffset;
 
-            int headerOffset = reader.GetOffsetForRVA(entry.AssemblyHeaderRva);
+            ImageOffset headerOffset = reader.GetOffsetForRVA(entry.AssemblyHeaderRva);
             ReadyToRunCoreHeader coreHeader;
             try
             {
@@ -264,16 +264,16 @@ internal sealed class MethodInventory
         var result = new List<FixupInfo>(cellRefs.Count);
         foreach (FixupCellRef cell in cellRefs)
         {
-            if (cell.TableIndex >= importSections.Count)
+            if ((uint)cell.TableIndex >= importSections.Count)
                 continue;
             ImportSectionSignatures section = importSections[(int)cell.TableIndex];
-            if (cell.CellIndex >= section.Signatures.Length)
+            if ((uint)cell.CellIndex >= section.Signatures.Length)
                 continue;
-            R2RFixupSignature sig = section.Signatures[cell.CellIndex];
+            R2RFixupSignature sig = section.Signatures[(int)cell.CellIndex];
             result.Add(new FixupInfo
             {
-                TableIndex = cell.TableIndex,
-                CellIndex = cell.CellIndex,
+                TableIndex = (uint)cell.TableIndex,
+                CellIndex = (uint)cell.CellIndex,
                 Kind = sig?.Kind ?? default,
                 Signature = sig,
             });

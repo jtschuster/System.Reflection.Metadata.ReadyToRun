@@ -35,7 +35,6 @@ public sealed partial class R2RFixupSignature
         ModuleIndex = moduleIndex;
         Payload = payload;
     }
-
     public void AppendTo(StringBuilder sb)
     {
         sb.Append(Kind.ToString());
@@ -106,14 +105,14 @@ public sealed class R2RDeclaringTypeFixupPayload : R2RFixupPayload
 /// <summary>Target and destination RVAs for a WebAssembly code address fixup.</summary>
 public sealed class R2RStoreMultiCallableAddrFixupPayload : R2RFixupPayload
 {
-    public uint TargetRva { get; }
-    public uint LocationRva { get; }
+    public ImageRVA TargetRva { get; }
+    public ImageRVA LocationRva { get; }
 
-    public R2RStoreMultiCallableAddrFixupPayload(uint targetRva, uint locationRva)
+    public R2RStoreMultiCallableAddrFixupPayload(ImageRVA targetRva, ImageRVA locationRva)
         => (TargetRva, LocationRva) = (targetRva, locationRva);
 
     public override void AppendTo(StringBuilder sb)
-        => sb.Append($"target RVA:0x{TargetRva:X} location RVA:0x{LocationRva:X}");
+        => sb.Append($"target RVA:0x{(uint)TargetRva:X} location RVA:0x{(uint)LocationRva:X}");
 }
 
 /// <summary>
@@ -509,6 +508,3 @@ public sealed class R2ROpaqueFixupPayload : R2RFixupPayload
 
     public override void AppendTo(StringBuilder sb) => sb.Append($"opaque-payload@0x{(uint)PayloadOffset:X}");
 }
-
-/// <summary>Opaque file offset to an unknown fixup payload preserved during tolerant decoding.</summary>
-public enum R2ROpaqueFixupPayloadOffset : uint { }
