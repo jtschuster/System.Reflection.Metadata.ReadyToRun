@@ -21,6 +21,8 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </remarks>
     public sealed class MethodDefEntryPointsTable
     {
+        internal int SectionEndOffset { get; }
+
         /// <summary>
         /// NativeArray whose slot <c>rowId - 1</c> stores the MethodDef entry payload for MethodDef row ID <c>rowId</c>.
         /// </summary>
@@ -31,9 +33,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public int EntryCount => Entries.Count;
 
-        internal MethodDefEntryPointsTable(NativeArrayHandle entries)
+        internal MethodDefEntryPointsTable(NativeArrayHandle entries, int sectionEndOffset)
         {
             Entries = entries;
+            SectionEndOffset = sectionEndOffset;
         }
     }
 
@@ -52,7 +55,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 throw new BadImageFormatException("MethodDefEntryPoints count exceeds the supported range.");
 
             var entries = new NativeArrayHandle(sectionOffset, (int)encodedCount);
-            return new MethodDefEntryPointsTable(entries);
+            return new MethodDefEntryPointsTable(entries, (int)sectionEndOffset);
         }
 
         public bool TryGetMethodDefEntryPoint(MethodDefEntryPointsTable table, MethodRid methodRid, out MethodDefEntry entry)
@@ -63,7 +66,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (rowId <= 0 || rowId > table.EntryCount)
                 throw new ArgumentOutOfRangeException(nameof(methodRid));
 
-            NativeArray methodEntryPoints = GetNativeArray(table.Entries);
+            NativeArray methodEntryPoints = GetNativeArray(table);
             int offset = 0;
             if (!methodEntryPoints.TryGetAt((uint)(rowId - 1), ref offset))
             {
@@ -71,30 +74,35 @@ namespace System.Reflection.Metadata.ReadyToRun
                 return false;
             }
 
-            entry = DecodeMethodDefEntryPoint(offset, table.Entries);
+            entry = DecodeMethodDefEntryPoint(offset, table);
             return true;
         }
 
         public IEnumerable<(MethodRid MethodRid, MethodDefEntry Entry)> EnumerateMethodDefEntryPoints(MethodDefEntryPointsTable table)
         {
             EnsureSemanticDecodingSupported(nameof(EnumerateMethodDefEntryPoints));
-            NativeArray methodEntryPoints = GetNativeArray(table.Entries);
+            ArgumentNullException.ThrowIfNull(table);
+            NativeArray methodEntryPoints = GetNativeArray(table);
             for (int rowId = 1; rowId <= table.EntryCount; rowId++)
             {
                 int offset = 0;
                 if (methodEntryPoints.TryGetAt((uint)(rowId - 1), ref offset))
-                    yield return ((MethodRid)rowId, DecodeMethodDefEntryPoint(offset, table.Entries));
+                    yield return ((MethodRid)rowId, DecodeMethodDefEntryPoint(offset, table));
             }
         }
 
-        private NativeArray GetNativeArray(NativeArrayHandle handle)
-            => new NativeArray(_nativeReader, (uint)handle.Offset, (uint)ImageEndOffset);
+        private NativeArray GetNativeArray(MethodDefEntryPointsTable table)
+            => new NativeArray(_nativeReader, (uint)table.Entries.Offset, checked((uint)table.SectionEndOffset));
 
-        private MethodDefEntry DecodeMethodDefEntryPoint(int offset, NativeArrayHandle handle)
+        private MethodDefEntry DecodeMethodDefEntryPoint(int offset, MethodDefEntryPointsTable table)
         {
             (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) =
-                DecodeRuntimeFunctionIdAndFixupCellList(offset, handle.Offset, ImageEndOffset);
-            return new MethodDefEntry(runtimeFunctionIndex, fixupCellListHandle);
+                DecodeRuntimeFunctionIdAndFixupCellList(
+                    offset,
+                    table.Entries.Offset,
+                    table.SectionEndOffset,
+                    out uint rawRuntimeFunctionIdAndFlags);
+            return new MethodDefEntry(runtimeFunctionIndex, fixupCellListHandle, rawRuntimeFunctionIdAndFlags);
         }
     }
 
@@ -109,6 +117,11 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// </remarks>
     public sealed class MethodDefEntry
     {
+        /// <summary>
+        /// Raw runtime-function ID and flag value decoded from the compressed payload.
+        /// </summary>
+        public uint RawRuntimeFunctionIdAndFlags { get; }
+
         /// <summary>Index into the RuntimeFunctions array.</summary>
         public RuntimeFunctionIndex EntryPointIndex { get; }
 
@@ -118,10 +131,14 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// </summary>
         public FixupCellListHandle? FixupCellList { get; }
 
-        internal MethodDefEntry(RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
+        internal MethodDefEntry(
+            RuntimeFunctionIndex entryPointIndex,
+            FixupCellListHandle? fixupCellListHandle,
+            uint rawRuntimeFunctionIdAndFlags)
         {
             EntryPointIndex = entryPointIndex;
             FixupCellList = fixupCellListHandle;
+            RawRuntimeFunctionIdAndFlags = rawRuntimeFunctionIdAndFlags;
         }
     }
 

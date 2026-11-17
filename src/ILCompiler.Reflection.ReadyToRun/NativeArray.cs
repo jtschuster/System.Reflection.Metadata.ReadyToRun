@@ -36,7 +36,7 @@ namespace System.Reflection.Metadata.ReadyToRun
                 throw new BadImageFormatException("NativeArray range is outside the image.");
 
             uint val = 0;
-            _baseOffset = _reader.DecodeUnsigned(offset, ref val);
+            _baseOffset = _reader.DecodeUnsigned(offset, endOffset, ref val);
             if (_baseOffset > endOffset)
                 throw new BadImageFormatException("NativeArray header extends beyond its containing range.");
 
@@ -115,7 +115,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             for (uint bit = _blockSize >> 1; bit > 0; bit >>= 1)
             {
                 uint val = 0;
-                uint offset2 = _reader.DecodeUnsigned(offset, ref val);
+                uint offset2 = _reader.DecodeUnsigned(offset, _endOffset, ref val);
                 if (offset2 > _endOffset)
                     throw new BadImageFormatException("NativeArray node extends beyond its containing range.");
 

@@ -164,13 +164,24 @@ namespace System.Reflection.Metadata.ReadyToRun
             int offset,
             int containingStartOffset,
             int containingEndOffset)
+            => DecodeRuntimeFunctionIdAndFixupCellList(
+                offset,
+                containingStartOffset,
+                containingEndOffset,
+                out _);
+
+        internal (RuntimeFunctionIndex, FixupCellListHandle?) DecodeRuntimeFunctionIdAndFixupCellList(
+            int offset,
+            int containingStartOffset,
+            int containingEndOffset,
+            out uint rawRuntimeFunctionIdAndFlags)
         {
             var parser = new NativeParser(
                 _nativeReader,
                 (uint)offset,
                 (uint)containingEndOffset);
             int encodedIdOffset = offset;
-            uint id = parser.GetUnsigned();
+            uint id = rawRuntimeFunctionIdAndFlags = parser.GetUnsigned();
             offset = (int)parser.Offset;
 
             FixupCellListHandle? fixupCells = null;
