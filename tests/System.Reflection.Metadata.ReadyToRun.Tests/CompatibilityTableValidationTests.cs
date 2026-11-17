@@ -66,7 +66,7 @@ public sealed class CompatibilityTableValidationTests
             () => reader.DecodeFixupSignature(default(SignatureRva)),
             () => reader.GetUnwindInfo((UnwindInfoRva)1),
             () => reader.GetGcInfo((UnwindInfoRva)1),
-            () => reader.GetDebugInfo((DebugInfoOffset)1),
+            () => reader.GetDebugInfo(new DebugInfoTable(new NativeArrayHandle(0, 0), 1), (DebugInfoOffset)1),
             () => reader.GetEHInfo((EHInfoRva)1, 1),
             () => reader.GetSignatureTable((SignatureTableRva)1, 1),
             () => reader.GetGCRefMapTable((AuxiliaryDataTableRva)1, 1),
@@ -125,6 +125,41 @@ public sealed class CompatibilityTableValidationTests
         ReadyToRunSection section = Assert.Single(reader.GetSections());
 
         Assert.Throws<BadImageFormatException>(() => reader.GetExceptionInfoTable(section));
+    }
+
+    [Fact]
+    public void ExceptionInfo_ExposesTerminalSentinelForLastEntryLength()
+    {
+        byte[] content = Combine(
+            Int32Bytes(0x1000), Int32Bytes(0x2000),
+            Int32Bytes(0x1010), Int32Bytes(0x2018),
+            Int32Bytes(-1), Int32Bytes(0x2048));
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.ExceptionInfo, content);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+
+        IReadOnlyList<ExceptionInfoEntry> entries = reader.GetExceptionInfoTable(section).Entries;
+
+        Assert.Equal(3, entries.Count);
+        Assert.Equal((CodeRva)0x1000, entries[0].MethodRva);
+        Assert.Equal((EHInfoRva)0x2000, entries[0].EhInfoRva);
+        Assert.Equal((CodeRva)0x1010, entries[1].MethodRva);
+        Assert.Equal((EHInfoRva)0x2018, entries[1].EhInfoRva);
+        Assert.Equal((CodeRva)uint.MaxValue, entries[2].MethodRva);
+        Assert.Equal((EHInfoRva)0x2048, entries[2].EhInfoRva);
+        Assert.Equal(48u, (uint)entries[2].EhInfoRva - (uint)entries[1].EhInfoRva);
+    }
+
+    [Fact]
+    public void ExceptionInfo_SentinelOnlyTableExposesSentinel()
+    {
+        byte[] content = Combine(Int32Bytes(-1), Int32Bytes(0x2000));
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.ExceptionInfo, content);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+
+        ExceptionInfoEntry sentinel = Assert.Single(reader.GetExceptionInfoTable(section).Entries);
+
+        Assert.Equal((CodeRva)uint.MaxValue, sentinel.MethodRva);
+        Assert.Equal((EHInfoRva)0x2000, sentinel.EhInfoRva);
     }
 
     [Fact]
@@ -216,7 +251,9 @@ public sealed class CompatibilityTableValidationTests
             content);
         ReadyToRunSection section = Assert.Single(reader.GetSections());
 
-        Assert.Throws<BadImageFormatException>(() => reader.GetAvailableTypesTable(section));
+        // A malformed header is rejected when the table opens; a bad bucket index is rejected on enumeration.
+        Assert.Throws<BadImageFormatException>(
+            () => reader.EnumerateAvailableTypeEntries(reader.GetAvailableTypesTable(section)).ToList());
     }
 
     [Theory]
@@ -233,7 +270,9 @@ public sealed class CompatibilityTableValidationTests
             content);
         ReadyToRunSection section = Assert.Single(reader.GetSections());
 
-        Assert.Throws<BadImageFormatException>(() => reader.GetDebugInfoTable(section));
+        // A malformed header is rejected when the table opens; a bad block index is rejected on enumeration.
+        Assert.Throws<BadImageFormatException>(
+            () => reader.EnumerateDebugInfoEntries(reader.GetDebugInfoTable(section)).ToList());
     }
 
     [Fact]
@@ -271,7 +310,7 @@ public sealed class CompatibilityTableValidationTests
     }
 
     [Fact]
-    public void GetInliners_DecodesRawRelativeOffsetWithoutParsingTable()
+    public void GetInliners_DecodesSectionRelativeOffsetWithoutParsingTable()
     {
         byte[] content = Combine(
             Int32Bytes(2 * sizeof(int)),
@@ -281,10 +320,10 @@ public sealed class CompatibilityTableValidationTests
         using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.InliningInfo, content);
         ReadyToRunSection section = Assert.Single(reader.GetSections());
 
-        IReadOnlyList<MethodRid> inliners = reader.GetInliners(section, (InlinerListOffset)0u);
+        IReadOnlyList<MethodRid> inliners = reader.GetInliners(section, (InlinerListOffset)12u);
 
         Assert.Equal([(MethodRid)3, (MethodRid)7], inliners);
-        Assert.Equal((InlinerListOffset)0u, Assert.Single(reader.GetInliningInfoTable(section).Entries).InlinersOffset);
+        Assert.Equal((InlinerListOffset)12u, Assert.Single(reader.GetInliningInfoTable(section).Entries).InlinersOffset);
     }
 
     [Fact]
@@ -298,22 +337,92 @@ public sealed class CompatibilityTableValidationTests
     }
 
     [Theory]
-    [InlineData(7, 1)]
-    [InlineData(5, -1)]
-    public void GetPgoPayload_PreservesEncodedBlobBackReference(int versionAndFlags, int? expectedDelta)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetPgoEntry_ResolvesInlineAndBackReferencedBlobs(bool backReference)
     {
-        byte[] content = [0, 2, (byte)(versionAndFlags << 1), 2];
-        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.CompilerIdentifier, content);
+        // Section-relative layout:
+        //   0: hashtable header (1 bucket, 1-byte bucket index)
+        //   1: bucket index [start=2, end=4], relative to offset 1
+        //   3: bucket record [lowHash=0][signed relative offset to entry]
+        //   5: back-referenced blob byte (or the entry when inline)
+        // Back-reference entry at 6: [sig 0 2][versionAndFlags 7][delta 4] -> blob at 9 - 4 = 5.
+        // Inline entry at 5: [sig 0 2][versionAndFlags 5][blob] -> blob at 8.
+        byte[] content = backReference
+            ? [0x00, 2, 4, 0, 4, 0xAA, 0, 2, 14, .. EncodeUnsigned(4)]
+            : [0x00, 2, 4, 0, 2, 0, 2, 10, 0xAA];
+        int expectedEntry = backReference ? 6 : 5;
+        int expectedBlob = backReference ? 5 : 8;
+
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.PgoInstrumentationData, content);
         ReadyToRunSection section = Assert.Single(reader.GetSections());
-        int payloadOffset = (int)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
-        var entry = new PgoEntry((PgoPayloadOffset)(uint)payloadOffset, lowHashcode: 0);
+        int sectionOffset = (int)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+        PgoHashTableHandle table = reader.GetPgoInstrumentationDataTable(section);
 
-        PgoPayload payload = reader.GetPgoPayload(entry);
+        PgoEntryHandle handle = Assert.Single(reader.EnumeratePgoEntries(table));
+        Assert.Equal((PgoEntryHandle)expectedEntry, handle);
+        Assert.Equal(handle, reader.LookupPgoEntry(table, 0, _ => true));
 
-        if (expectedDelta is int delta && delta >= 0)
-            Assert.Equal((uint)delta, (uint)payload.PgoDataBlobBackReferenceDelta!.Value);
-        else
-            Assert.Null(payload.PgoDataBlobBackReferenceDelta);
+        PgoEntry entry = reader.GetPgoEntry(table, handle);
+
+        Assert.Equal(1, entry.PgoFormatVersion);
+        Assert.Equal(backReference ? (PgoDataBlobBackReferenceDelta)4u : null, entry.PgoDataBlobBackReferenceDelta);
+        PgoDataBlobImageOffset blobOffset = reader.GetPgoDataBlobImageOffset(table, entry);
+        Assert.Equal((PgoDataBlobImageOffset)(sectionOffset + expectedBlob), blobOffset);
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(130)]
+    public void GetFixupCells_ResolvesBackReferenceFromStartOfDelta(uint delta)
+    {
+        byte[] encodedDelta = EncodeUnsigned(delta);
+        byte[] content = new byte[checked((int)delta + encodedDelta.Length)];
+        content[0] = 0x21;
+        int encodedIdOffset = checked((int)delta - 1);
+        content[encodedIdOffset] = 6;
+        encodedDelta.CopyTo(content, encodedIdOffset + 1);
+
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.MethodDefEntryPoints, content);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+        int sectionOffset = (int)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+        (RuntimeFunctionIndex _, FixupCellListHandle? fixupCellList) =
+            reader.DecodeRuntimeFunctionIdAndFixupCellList(
+                sectionOffset + encodedIdOffset,
+                sectionOffset,
+                sectionOffset + section.Size);
+
+        IReadOnlyList<FixupCellRef> fixupCells = reader.GetFixupCells(section, fixupCellList!.Value);
+
+        FixupCellRef fixupCell = Assert.Single(fixupCells);
+        Assert.Equal((ImportSectionIndex)1, fixupCell.TableIndex);
+        Assert.Equal((ImportCellIndex)2, fixupCell.CellIndex);
+    }
+
+    [Fact]
+    public void DecodeRuntimeFunctionIdAndFixupCellList_RejectsBackReferenceBeforeContainingRange()
+    {
+        byte[] content = [0, 0, 6, 8];
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.MethodDefEntryPoints, content);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+        int sectionOffset = (int)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+
+        Assert.Throws<BadImageFormatException>(() =>
+            reader.DecodeRuntimeFunctionIdAndFixupCellList(
+                sectionOffset + 2,
+                sectionOffset,
+                sectionOffset + section.Size));
+    }
+
+    [Fact]
+    public void GetPgoEntry_RejectsBackReferenceBeforeSectionStart()
+    {
+        // Entry at 5: [sig 0 2][versionAndFlags 7][delta 9]; the delta origin is 8, so 8 - 9 < 0.
+        byte[] content = [0x00, 2, 4, 0, 2, 0, 2, 14, .. EncodeUnsigned(9)];
+        using ReadyToRunReader reader = CreateReader(24, 0, ReadyToRunSectionType.PgoInstrumentationData, content);
+        PgoHashTableHandle table = reader.GetPgoInstrumentationDataTable(Assert.Single(reader.GetSections()));
+
+        Assert.Throws<BadImageFormatException>(() => reader.GetPgoEntry(table, (PgoEntryHandle)5));
     }
 
     [Fact]
@@ -421,6 +530,23 @@ public sealed class CompatibilityTableValidationTests
         byte[] bytes = new byte[sizeof(int)];
         BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
         return bytes;
+    }
+
+    private static byte[] EncodeUnsigned(uint value)
+    {
+        if (value <= 0x7F)
+            return [(byte)(value << 1)];
+        if (value <= 0x3FFF)
+            return [(byte)((value << 2) | 1), (byte)(value >> 6)];
+        if (value <= 0x1F_FFFF)
+            return [(byte)((value << 3) | 3), (byte)(value >> 5), (byte)(value >> 13)];
+        if (value <= 0x0FFF_FFFF)
+            return [(byte)((value << 4) | 7), (byte)(value >> 4), (byte)(value >> 12), (byte)(value >> 20)];
+
+        byte[] encoded = new byte[5];
+        encoded[0] = 0x0F;
+        BinaryPrimitives.WriteUInt32LittleEndian(encoded.AsSpan(1), value);
+        return encoded;
     }
 
     private static byte[] Combine(params byte[][] segments)

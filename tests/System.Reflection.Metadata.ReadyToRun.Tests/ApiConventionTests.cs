@@ -40,11 +40,8 @@ public sealed class ApiConventionTests
         new object[] { "InliningInfoEntry" },
         new object[] { "InstanceMethodEntry" },
         new object[] { "MethodDefEntry" },
-        new object[] { "FixupCellListHandle" },
-        new object[] { "PgoEntry" },
         new object[] { "RuntimeFunctionEntry" },
-        new object[] { "InstanceMethodPayload" },
-        new object[] { "PgoPayload" },
+        new object[] { "PgoEntry" },
         new object[] { "ProfileDataInfoEntry" },
         new object[] { "ExternalTypeMapGroup" },
         new object[] { "ExternalTypeMapEntry" },
@@ -89,15 +86,24 @@ public sealed class ApiConventionTests
         new object[] { "ImportSlotTableRva" },
         new object[] { "AuxiliaryDataTableRva" },
         new object[] { "InlinerListOffset" },
-        new object[] { "InstanceMethodPayloadOffset" },
-        new object[] { "PgoPayloadOffset" },
+        new object[] { "InstanceMethodEntryHandle" },
+        new object[] { "FixupCellListHandle" },
+        new object[] { "ModuleIndex" },
+        new object[] { "AvailableTypeEntryHandle" },
+        new object[] { "InliningInfo2EntryHandle" },
+        new object[] { "CrossModuleInlineEntryHandle" },
+        new object[] { "ExternalTypeMapGroupHandle" },
+        new object[] { "ProxyTypeMapGroupHandle" },
+        new object[] { "TypeMapAssemblyTargetsEntryHandle" },
+        new object[] { "PgoEntryHandle" },
+        new object[] { "PgoDataBlobImageOffset" },
         new object[] { "PgoDataBlobBackReferenceDelta" },
         new object[] { "R2ROpaqueFixupPayloadOffset" },
         new object[] { "ExternalTypeMapInnerHandle" },
         new object[] { "ProxyTypeMapInnerHandle" },
         new object[] { "ImportSectionIndex" },
         new object[] { "ImportCellIndex" },
-        new object[] { "FixupCellListOffset" },
+        new object[] { "FixupCellListImageOffset" },
     };
 
     [Theory]
@@ -137,24 +143,18 @@ public sealed class ApiConventionTests
     }
 
     [Fact]
-    public void AvailableTypeEntry_ExposesRidIsExportedTypeAndGetEntityHandle()
+    public void AvailableTypeEntry_ExposesTypedEntityHandle()
     {
         Type type = RequireType("AvailableTypeEntry");
 
-        PropertyInfo? rid = type.GetProperty("Rid", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(rid);
-        Assert.Equal(typeof(uint), rid!.PropertyType);
+        Assert.Equal(typeof(EntityHandle), type.GetProperty("Type", BindingFlags.Public | BindingFlags.Instance)?.PropertyType);
+        Assert.Equal(typeof(bool), type.GetProperty("IsExportedType", BindingFlags.Public | BindingFlags.Instance)?.PropertyType);
 
-        PropertyInfo? isExported = type.GetProperty("IsExportedType", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(isExported);
-        Assert.Equal(typeof(bool), isExported!.PropertyType);
-
-        MethodInfo? getHandle = type.GetMethod("GetEntityHandle", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(getHandle);
-        Assert.Equal(typeof(EntityHandle), getHandle!.ReturnType);
-
-        // The old SignatureBlobOffset-style raw exposure must be gone.
-        Assert.Null(type.GetProperty("Type", BindingFlags.Public | BindingFlags.Instance));
+        // Decoded values don't echo the handle they were read from, and the raw RID encoding
+        // is not exposed separately from the typed handle.
+        Assert.Null(type.GetProperty("Handle", BindingFlags.Public | BindingFlags.Instance));
+        Assert.Null(type.GetProperty("Rid", BindingFlags.Public | BindingFlags.Instance));
+        Assert.Null(type.GetMethod("GetEntityHandle", BindingFlags.Public | BindingFlags.Instance));
     }
 
     [Fact]
@@ -173,18 +173,6 @@ public sealed class ApiConventionTests
         Assert.False(typeof(PEImageReader).IsPublic);
         Assert.Null(typeof(ReadyToRunReader).GetMethod("GetGcInfo"));
         Assert.Null(typeof(ReadyToRunReader).GetMethod("GetUnwindInfo"));
-    }
-
-    [Fact]
-    public void DebugInfoEntries_PreserveSparseRuntimeFunctionIndices()
-    {
-        var table = new DebugInfoTable(new List<DebugInfoEntry>
-        {
-            new((RuntimeFunctionIndex)0, (DebugInfoOffset)12),
-            new((RuntimeFunctionIndex)5, (DebugInfoOffset)34),
-        });
-
-        Assert.Equal(new uint[] { 0, 5 }, table.Entries.Select(entry => (uint)entry.RuntimeFunctionIndex));
     }
 
     [Fact]
@@ -265,12 +253,12 @@ public sealed class ApiConventionTests
     [Fact]
     public void InstanceMethodEntryPointsTable_IsInertTokenWithReaderSideApis()
     {
-        Type table = RequireType("InstanceMethodEntryPointsTable");
-        Assert.True(table.IsSealed);
+        Type table = RequireType("InstanceMethodHashTableHandle");
+        Assert.True(table.IsValueType);
         Assert.Empty(table.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
 
         // The table is a token: no eager Entries collection lives on it.
-        Assert.Null(table.GetProperty("Entries", BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(table.GetProperties(BindingFlags.Public | BindingFlags.Instance));
 
         Type reader = typeof(ReadyToRunReader);
         MethodInfo? getTable = reader.GetMethod("GetInstanceMethodEntryPointsTable", BindingFlags.Public | BindingFlags.Instance);
@@ -279,10 +267,10 @@ public sealed class ApiConventionTests
 
         MethodInfo? enumerate = reader.GetMethod("EnumerateInstanceMethodEntries", BindingFlags.Public | BindingFlags.Instance);
         Assert.NotNull(enumerate);
-        Assert.Equal(typeof(IEnumerable<>).MakeGenericType(RequireType("InstanceMethodEntry")), enumerate!.ReturnType);
+        Assert.Equal(typeof(IEnumerable<>).MakeGenericType(RequireType("InstanceMethodHashTableEntry")), enumerate!.ReturnType);
 
         MethodInfo? lookup = reader.GetMethod(
-            "LookupInstanceMethodEntryPoint",
+            "LookupInstanceMethodEntry",
             new[]
             {
                 table,
@@ -290,7 +278,8 @@ public sealed class ApiConventionTests
                 typeof(Func<,>).MakeGenericType(RequireType("MethodSignature"), typeof(bool))
             });
         Assert.NotNull(lookup);
-        ParameterInfo[] parameters = lookup!.GetParameters();
+        Assert.Equal(typeof(Nullable<>).MakeGenericType(RequireType("InstanceMethodEntryHandle")), lookup!.ReturnType);
+        ParameterInfo[] parameters = lookup.GetParameters();
         Assert.Equal(3, parameters.Length);
         Assert.Equal(table, parameters[0].ParameterType);
         Assert.Equal(typeof(int), parameters[1].ParameterType);
@@ -316,18 +305,19 @@ public sealed class ApiConventionTests
     {
         Type optionsInterface = RequireType("IReadyToRunSignatureDecodingOptions");
         Type reader = typeof(ReadyToRunReader);
-        Type instanceMethodEntry = RequireType("InstanceMethodEntry");
-        Type instanceMethodTable = RequireType("InstanceMethodEntryPointsTable");
-        Type pgoEntry = RequireType("PgoEntry");
+        Type instanceMethodEntry = RequireType("InstanceMethodEntryHandle");
+        Type instanceMethodTable = RequireType("InstanceMethodHashTableHandle");
+        Type pgoTable = RequireType("PgoHashTableHandle");
+        Type pgoEntry = RequireType("PgoEntryHandle");
 
         Assert.NotNull(reader.GetMethod("DecodeFixupSignature", new[] { RequireType("SignatureRva"), optionsInterface }));
-        Assert.NotNull(reader.GetMethod("GetInstanceMethodPayload", new[] { instanceMethodTable, instanceMethodEntry, optionsInterface }));
-        Assert.NotNull(reader.GetMethod("GetPgoPayload", new[] { pgoEntry, optionsInterface }));
+        Assert.NotNull(reader.GetMethod("GetInstanceMethodEntry", new[] { instanceMethodTable, instanceMethodEntry, optionsInterface }));
+        Assert.NotNull(reader.GetMethod("GetPgoEntry", new[] { pgoTable, pgoEntry, optionsInterface }));
         Assert.NotNull(reader.GetMethod(
             "GetFixupCells",
             new[] { RequireType("ReadyToRunSection"), RequireType("FixupCellListHandle") }));
         Assert.NotNull(reader.GetMethod(
-            "LookupInstanceMethodEntryPoint",
+            "LookupInstanceMethodEntry",
             new[]
             {
                 instanceMethodTable,
@@ -390,18 +380,16 @@ public sealed class ApiConventionTests
     }
 
     [Fact]
-    public void TypeMapInnerLookup_RequiresOwningSection()
+    public void TypeMapInnerLookup_RequiresOwningTable()
     {
         Type reader = typeof(ReadyToRunReader);
         Type externalHandle = RequireType("ExternalTypeMapInnerHandle");
         Type proxyHandle = RequireType("ProxyTypeMapInnerHandle");
 
-        Type section = RequireType("ReadyToRunSection");
-        Assert.NotNull(reader.GetMethod("GetExternalTypeMapEntries", new[] { section, externalHandle }));
+        Assert.NotNull(reader.GetMethod("GetExternalTypeMapEntries", new[] { RequireType("ExternalTypeMapsHashTableHandle"), externalHandle }));
         Assert.Null(reader.GetMethod("GetExternalTypeMapEntries", new[] { externalHandle }));
-        Assert.NotNull(reader.GetMethod("GetProxyTypeMapEntries", new[] { section, proxyHandle }));
+        Assert.NotNull(reader.GetMethod("GetProxyTypeMapEntries", new[] { RequireType("ProxyTypeMapsHashTableHandle"), proxyHandle }));
         Assert.Null(reader.GetMethod("GetProxyTypeMapEntries", new[] { proxyHandle }));
-        Assert.Equal(RequireType("FixupCellListOffset"), RequireType("FixupCellListHandle").GetProperty("Offset")?.PropertyType);
     }
 
     private static Type RequireType(string simpleName)

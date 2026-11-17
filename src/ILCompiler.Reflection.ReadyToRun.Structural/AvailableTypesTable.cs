@@ -2,85 +2,110 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
-using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
-
 
 namespace System.Reflection.Metadata.ReadyToRun
 {
     /// <summary>
-    /// Structural projection of the AvailableTypes section.
-    /// A NativeHashtable of (rid, isExported) entries per available type.
-    /// No type name resolution is performed.
+    /// Handle to the NativeHashtable stored in an AvailableTypes section.
+    /// Obtain one from <see cref="ReadyToRunReader.GetAvailableTypesTable(ReadyToRunSection)"/>.
     /// </summary>
     /// <remarks>
+    /// <code>
+    /// NativeHashtable (hashed by the version-resilient hash of the type's namespace and name)
+    ///   entry: DecodeUnsigned((rid &lt;&lt; 1) | isExportedType)
+    /// </code>
     /// Crossgen2 emitter: <c>TypesTableNode</c>.
     /// </remarks>
-    public sealed class AvailableTypesTable
+    public readonly struct AvailableTypesHashTableHandle
     {
-        public IReadOnlyList<AvailableTypeEntry> Entries { get; }
+        internal int Offset { get; }
 
-        internal AvailableTypesTable(List<AvailableTypeEntry> entries)
+        internal int Size { get; }
+
+        internal AvailableTypesHashTableHandle(int offset, int size)
         {
-            Entries = entries;
+            Offset = offset;
+            Size = size;
         }
     }
 
     public partial class ReadyToRunReader
     {
-        public AvailableTypesTable GetAvailableTypesTable(ReadyToRunSection section)
+        /// <summary>
+        /// Open the AvailableTypes section as a NativeHashtable handle without decoding any entries.
+        /// </summary>
+        public AvailableTypesHashTableHandle GetAvailableTypesTable(ReadyToRunSection section)
         {
-            int sectionOffset = ValidateAndGetSectionOffset(
+            int sectionOffset = ValidateAndGetNativeHashtableSectionOffset(
                 section,
                 Internal.Runtime.ReadyToRunSectionType.AvailableTypes,
                 nameof(GetAvailableTypesTable));
-            NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)(sectionOffset + section.Size));
-            NativeHashtable.AllEntriesEnumerator enumerator = hashtable.EnumerateAllEntries();
-            var entries = new List<AvailableTypeEntry>();
+            return new AvailableTypesHashTableHandle(sectionOffset, section.Size);
+        }
 
-            NativeParser curParser = enumerator.GetNext();
-            while (!curParser.IsNull())
+        /// <summary>Lazily enumerate every entry in the AvailableTypes hashtable.</summary>
+        public IEnumerable<AvailableTypeEntryHandle> EnumerateAvailableTypeEntries(AvailableTypesHashTableHandle table)
+        {
+            foreach (uint entry in EnumerateNativeHashtableEntries(table.Offset, table.Size, nameof(table)))
+                yield return (AvailableTypeEntryHandle)entry;
+        }
+
+        /// <summary>
+        /// Probe the bucket for <paramref name="versionResilientHash"/> and return the first entry that satisfies
+        /// <paramref name="predicate"/>.
+        /// </summary>
+        public AvailableTypeEntryHandle? LookupAvailableTypeEntry(
+            AvailableTypesHashTableHandle table,
+            int versionResilientHash,
+            Func<AvailableTypeEntry, bool> predicate)
+        {
+            ArgumentNullException.ThrowIfNull(predicate);
+            foreach (uint entry in LookupNativeHashtableEntries(table.Offset, table.Size, versionResilientHash, nameof(table)))
             {
-                uint rid = curParser.GetUnsigned();
-                bool isExportedType = (rid & 1) != 0;
-                rid >>= 1;
-                entries.Add(new AvailableTypeEntry(rid, isExportedType));
-                curParser = enumerator.GetNext();
+                AvailableTypeEntryHandle handle = (AvailableTypeEntryHandle)entry;
+                if (predicate(GetAvailableTypeEntry(table, handle)))
+                    return handle;
             }
 
-            return new AvailableTypesTable(entries);
+            return null;
+        }
+
+        /// <summary>Decode one AvailableTypes entry.</summary>
+        public AvailableTypeEntry GetAvailableTypeEntry(AvailableTypesHashTableHandle table, AvailableTypeEntryHandle handle)
+        {
+            NativeParser parser = OpenNativeHashtableEntry(table.Offset, table.Size, (uint)handle, nameof(table), out _);
+            uint ridAndFlag = parser.GetUnsigned();
+            bool isExportedType = (ridAndFlag & 1) != 0;
+            int rid = (int)(ridAndFlag >> 1);
+            if (rid > 0xFFFFFF)
+                throw new BadImageFormatException("AvailableTypes RID exceeds the metadata row-number range.");
+
+            EntityHandle type = isExportedType
+                ? MetadataTokens.ExportedTypeHandle(rid)
+                : MetadataTokens.TypeDefinitionHandle(rid);
+            return new AvailableTypeEntry(type);
         }
     }
 
     /// <summary>
-    /// A single entry in the AvailableTypes table.
+    /// A single decoded entry in the AvailableTypes table.
     /// </summary>
     public sealed class AvailableTypeEntry
     {
-        /// <summary>
-        /// The row ID of the type. This is a TypeDef RID if <see cref="IsExportedType"/>
-        /// is false, or an ExportedType RID if true.
-        /// </summary>
-        public uint Rid { get; }
-
-        /// <summary>Whether this entry refers to an ExportedType (true) or TypeDef (false).</summary>
-        public bool IsExportedType { get; }
-
-        internal AvailableTypeEntry(uint rid, bool isExportedType)
-        {
-            Rid = rid;
-            IsExportedType = isExportedType;
-        }
 
         /// <summary>
-        /// Returns the metadata <see cref="EntityHandle"/> for this entry:
-        /// a <see cref="TypeDefinitionHandle"/> when <see cref="IsExportedType"/> is false,
+        /// The available type: a <see cref="TypeDefinitionHandle"/> when <see cref="IsExportedType"/> is false,
         /// otherwise an <see cref="ExportedTypeHandle"/>.
         /// </summary>
-        public EntityHandle GetEntityHandle()
+        public EntityHandle Type { get; }
+
+        /// <summary>Whether this entry refers to an ExportedType (true) or TypeDef (false).</summary>
+        public bool IsExportedType => Type.Kind == HandleKind.ExportedType;
+
+        internal AvailableTypeEntry(EntityHandle type)
         {
-            return IsExportedType ? MetadataTokens.ExportedTypeHandle((int)Rid) : MetadataTokens.TypeDefinitionHandle((int)Rid);
+            Type = type;
         }
     }
 }

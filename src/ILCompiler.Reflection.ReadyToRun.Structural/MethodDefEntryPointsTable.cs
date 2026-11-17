@@ -13,6 +13,10 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// resolved before execution.
     /// </summary>
     /// <remarks>
+    /// <code>
+    /// NativeArray: MethodDef RID - 1 -> payload
+    /// payload:     DecodeUnsigned(id) [optional fixup-list back-reference]
+    /// </code>
     /// Crossgen2 emitter: <c>MethodEntryPointTableNode</c>.
     /// </remarks>
     public sealed class MethodDefEntryPointsTable
@@ -97,18 +101,27 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// <summary>
     /// One MethodDefEntryPoints payload containing the runtime function index and optional fixup-list handle.
     /// </summary>
+    /// <remarks>
+    /// <code>
+    /// id bit 0 = has fixups; bit 1 = fixup list is back-referenced
+    /// runtime-function index = id shifted right by 1 (or 2 when fixups are present)
+    /// </code>
+    /// </remarks>
     public sealed class MethodDefEntry
     {
         /// <summary>Index into the RuntimeFunctions array.</summary>
         public RuntimeFunctionIndex EntryPointIndex { get; }
 
-        /// <summary>Handle to the encoded fixup-list reference for this method.</summary>
-        public FixupCellListHandle? FixupCellListHandle { get; }
+        /// <summary>
+        /// Handle to the encoded fixup-list reference, relative to the MethodDefEntryPoints section;
+        /// resolve with <see cref="ReadyToRunReader.GetFixupCells"/>.
+        /// </summary>
+        public FixupCellListHandle? FixupCellList { get; }
 
         internal MethodDefEntry(RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
         {
             EntryPointIndex = entryPointIndex;
-            FixupCellListHandle = fixupCellListHandle;
+            FixupCellList = fixupCellListHandle;
         }
     }
 

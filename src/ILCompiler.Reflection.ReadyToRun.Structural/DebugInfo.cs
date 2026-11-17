@@ -16,6 +16,13 @@ namespace System.Reflection.Metadata.ReadyToRun;
 /// Contains sequence-point bounds and native variable locations.
 /// </summary>
 /// <remarks>
+/// <code>
+/// DebugInfo payload:
+///   nibble boundsByteCountOrFatMarker
+///   [fat: nibble boundsBytes, variablesBytes, uninstrumentedBytes,
+///         patchpointBytes, richDebugBytes, asyncBytes]
+///   bounds bytes | variables bytes | optional raw auxiliary payloads
+/// </code>
 /// Crossgen2 emitter: <c>DebugInfoTableNode (per-method DebugInfo blob built by DebugInfoBuilder)</c>.
 /// </remarks>
 public sealed class DebugInfo
@@ -58,40 +65,47 @@ public sealed class DebugInfo
 public partial class ReadyToRunReader
 {
     /// <summary>
-    /// Parse debug information from an R2R image at the given file offset.
-    /// This is a standalone parser that does not depend on <see cref="RuntimeFunction"/>.
+    /// Parse the debug information referenced by <paramref name="offset"/>.
+    /// This parser does not depend on <see cref="RuntimeFunction"/>.
     /// </summary>
-    /// <param name="offset">File offset pointing into the debug info NativeArray.</param>
+    /// <param name="table">The DebugInfo table that contains the entry and payload.</param>
+    /// <param name="offset">Section-relative offset of the encoded NativeArray handle, from
+    /// <see cref="TryGetDebugInfoOffset"/> or <see cref="EnumerateDebugInfoEntries"/>.</param>
     /// <returns>Parsed debug info.</returns>
-    public DebugInfo GetDebugInfo(DebugInfoOffset offset)
+    public DebugInfo GetDebugInfo(DebugInfoTable table, DebugInfoOffset offset)
     {
         EnsureSemanticDecodingSupported(nameof(GetDebugInfo));
+        ArgumentNullException.ThrowIfNull(table);
 
-        int containingStartOffset = 0;
-        int containingEndOffset = ImageEndOffset;
+        int containingStartOffset = table.SectionOffset;
+        int containingEndOffset = checked(containingStartOffset + table.SectionSize);
+        if (containingStartOffset < 0 || containingEndOffset > ImageEndOffset)
+            throw new ArgumentException("The DebugInfo table does not belong to this image.", nameof(table));
 
         NativeReader imageReader = _nativeReader;
         Machine machine = Machine;
         ReadyToRunFormatProfile profile = FormatProfile;
-        uint entryOffset = (uint)offset;
-        if (entryOffset > int.MaxValue)
+        if ((uint)offset >= (uint)table.SectionSize)
             throw new BadImageFormatException("Debug info entry offset exceeds the supported image range.");
+        uint entryOffset = checked((uint)(containingStartOffset + (int)(uint)offset));
 
         // Resolve the NativeArray indirection (lookback encoding)
-        uint lookback = 0;
-        uint debugInfoOffset = imageReader.DecodeUnsigned(entryOffset, ref lookback);
-        if (debugInfoOffset > containingEndOffset)
-            throw new BadImageFormatException("Debug info lookback encoding extends beyond its containing section.");
-
-        if (lookback != 0)
+        var entryParser = new NativeParser(imageReader, entryOffset, (uint)containingEndOffset);
+        uint lookback = entryParser.GetUnsigned();
+        uint debugInfoOffset;
+        if (lookback == 0)
         {
-            if (entryOffset < containingStartOffset
-                || lookback > entryOffset - (uint)containingStartOffset)
-            {
+            debugInfoOffset = entryParser.Offset;
+        }
+        else
+        {
+            if (lookback > entryOffset - (uint)containingStartOffset)
                 throw new BadImageFormatException("Debug info lookback points outside its containing section.");
-            }
             debugInfoOffset = entryOffset - lookback;
         }
+
+        if (debugInfoOffset >= (uint)containingEndOffset)
+            throw new BadImageFormatException("Debug info lookback encoding extends beyond its containing section.");
         if (debugInfoOffset > int.MaxValue)
             throw new BadImageFormatException("Debug info payload offset exceeds the supported image range.");
 

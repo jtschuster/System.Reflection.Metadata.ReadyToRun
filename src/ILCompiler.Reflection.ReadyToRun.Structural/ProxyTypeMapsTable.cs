@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 
-
 namespace System.Reflection.Metadata.ReadyToRun
 {
     /// <summary>
@@ -16,15 +15,56 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// Crossgen2 emitter: <c>ReadyToRunProxyTypeMapNode</c>.
     /// The section format is the same outer shape as ExternalTypeMaps (section 124),
     /// but the inner entries use type references (import/fixup pairs) as keys instead of UTF-8 strings.
+    /// <para>
+    /// All integers below are compressed unsigned values (<c>uint*</c>). A <c>string</c> is a
+    /// <c>uint*</c> byte length followed by that many UTF-8 bytes. An import reference is two
+    /// <c>uint*</c> values: import section index, then cell index.
+    /// </para>
+    /// <code>
+    /// ProxyTypeMaps section
+    /// +-----------------------------------------------------------+
+    /// | Outer NativeHashtable                                     |
+    /// |   key: version-resilient hash of the group type           |
+    /// |   each entry points at one group record (below)           |
+    /// +-----------------------------------------------------------+
+    ///
+    /// Group record (one per outer entry)
+    /// +-----------------------------------------------------------+
+    /// | group type   import reference (section, cell)             |
+    /// | state        uint*  (TypeMapGroupState)                   |
+    /// +-----------------------------------------------------------+
+    /// | state 0: record ends here, no inner table                 |
+    /// |                                                           |
+    /// | state 1 or 2: inner table starts at the next byte         |
+    /// |   +-------------------------------------------------------+
+    /// |   | Inner NativeHashtable          &lt;-- InnerHandle         |
+    /// |   |   each entry:                                         |
+    /// |   |     key      import reference (source type)           |
+    /// |   |     value    import reference (proxy type)            |
+    /// |   +-------------------------------------------------------+
+    /// |                                                           |
+    /// | state 2 only: named entries follow the inner table        |
+    /// |   +-------------------------------------------------------+
+    /// |   | count    uint*                                        |
+    /// |   | count x  { source name string, proxy name string }    |
+    /// |   +-------------------------------------------------------+
+    /// +-----------------------------------------------------------+
+    /// </code>
+    /// <para>
+    /// <see cref="ProxyTypeMapGroup.InnerHandle"/> is the inner table's offset from the start of the
+    /// section (which is also the start of the outer table).
+    /// </para>
     /// </remarks>
-    public sealed class ProxyTypeMapsTable
+    public readonly struct ProxyTypeMapsHashTableHandle
     {
-        /// <summary>All decoded outer entries from the section's NativeHashtable.</summary>
-        public IReadOnlyList<ProxyTypeMapGroup> Groups { get; }
+        internal int Offset { get; }
 
-        internal ProxyTypeMapsTable(IReadOnlyList<ProxyTypeMapGroup> groups)
+        internal int Size { get; }
+
+        internal ProxyTypeMapsHashTableHandle(int offset, int size)
         {
-            Groups = groups;
+            Offset = offset;
+            Size = size;
         }
     }
 
@@ -38,20 +78,18 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>Structural reference to the group type (import section and fixup indices).</summary>
         public ImportFixupReference GroupRef { get; }
 
-        /// <summary>
-        /// 0 = runtime fallback; 1 = fixups only; 2 = fixups and named entries (R2R 28+).
-        /// </summary>
-        public uint State { get; }
+        /// <summary>How the runtime resolves this group.</summary>
+        public TypeMapGroupState State { get; }
 
         /// <summary>
-        /// Handle to the inner NativeHashtable, valid only when <see cref="State"/> is non-zero.
+        /// Handle to the inner NativeHashtable, valid only when <see cref="State"/> is not <see cref="TypeMapGroupState.RuntimeAttributeFallback"/>.
         /// Resolve inner entries with <see cref="ReadyToRunReader.GetProxyTypeMapEntries"/>.
         /// </summary>
         public ProxyTypeMapInnerHandle InnerHandle { get; }
 
         internal ProxyTypeMapGroup(
             ImportFixupReference groupRef,
-            uint state,
+            TypeMapGroupState state,
             ProxyTypeMapInnerHandle innerHandle)
         {
             GroupRef = groupRef;
@@ -87,67 +125,85 @@ namespace System.Reflection.Metadata.ReadyToRun
     {
 
         /// <summary>
-        /// Parses the ProxyTypeMaps section as an outer NativeHashtable of type-map groups.
+        /// Open the ProxyTypeMaps section as a NativeHashtable handle without decoding any groups.
         /// </summary>
-        public ProxyTypeMapsTable GetProxyTypeMapsTable(ReadyToRunSection section)
+        public ProxyTypeMapsHashTableHandle GetProxyTypeMapsTable(ReadyToRunSection section)
         {
-            int sectionOffset = ValidateAndGetSectionOffset(
+            int sectionOffset = ValidateAndGetNativeHashtableSectionOffset(
                 section,
                 Internal.Runtime.ReadyToRunSectionType.ProxyTypeMaps,
                 nameof(GetProxyTypeMapsTable));
-            int sectionEndOffset = checked(sectionOffset + section.Size);
+            return new ProxyTypeMapsHashTableHandle(sectionOffset, section.Size);
+        }
 
-            NativeParser outerParser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            NativeHashtable outerHashtable = new NativeHashtable(_nativeReader, outerParser, (uint)sectionEndOffset);
-            NativeHashtable.AllEntriesEnumerator enumerator = outerHashtable.EnumerateAllEntries();
+        /// <summary>Lazily enumerate every group in the ProxyTypeMaps outer hashtable.</summary>
+        public IEnumerable<ProxyTypeMapGroupHandle> EnumerateProxyTypeMapGroups(ProxyTypeMapsHashTableHandle table)
+        {
+            foreach (uint entry in EnumerateNativeHashtableEntries(table.Offset, table.Size, nameof(table)))
+                yield return (ProxyTypeMapGroupHandle)entry;
+        }
 
-            var groups = new List<ProxyTypeMapGroup>();
-
-            NativeParser curParser = enumerator.GetNext();
-            while (!curParser.IsNull())
+        /// <summary>
+        /// Probe the bucket for <paramref name="versionResilientTypeHash"/> and return the first group that satisfies
+        /// <paramref name="predicate"/>.
+        /// </summary>
+        public ProxyTypeMapGroupHandle? LookupProxyTypeMapGroup(
+            ProxyTypeMapsHashTableHandle table,
+            int versionResilientTypeHash,
+            Func<ProxyTypeMapGroup, bool> predicate)
+        {
+            ArgumentNullException.ThrowIfNull(predicate);
+            foreach (uint entry in LookupNativeHashtableEntries(table.Offset, table.Size, versionResilientTypeHash, nameof(table)))
             {
-                uint groupSectionIdx = curParser.GetUnsigned();
-                uint groupFixupIdx = curParser.GetUnsigned();
-                uint state = curParser.GetUnsigned();
-                ValidateTypeMapState(state);
-
-                var groupRef = new ImportFixupReference((ImportSectionIndex)groupSectionIdx, (ImportCellIndex)groupFixupIdx);
-                ProxyTypeMapInnerHandle innerHandle = default;
-
-                if (state is 1 or 2)
-                {
-                    if (curParser.Offset < (uint)sectionOffset || curParser.Offset >= (uint)sectionEndOffset)
-                        throw new BadImageFormatException("Proxy type-map inner table starts outside its containing section.");
-                    innerHandle = (ProxyTypeMapInnerHandle)(curParser.Offset - (uint)sectionOffset);
-                }
-
-                groups.Add(new ProxyTypeMapGroup(groupRef, state, innerHandle));
-                curParser = enumerator.GetNext();
+                ProxyTypeMapGroupHandle handle = (ProxyTypeMapGroupHandle)entry;
+                if (predicate(GetProxyTypeMapGroup(table, handle)))
+                    return handle;
             }
 
-            return new ProxyTypeMapsTable(groups);
+            return null;
+        }
+
+        /// <summary>Decode one ProxyTypeMaps group.</summary>
+        public ProxyTypeMapGroup GetProxyTypeMapGroup(ProxyTypeMapsHashTableHandle table, ProxyTypeMapGroupHandle handle)
+        {
+            NativeParser curParser = OpenNativeHashtableEntry(table.Offset, table.Size, (uint)handle, nameof(table), out int tableEndOffset);
+            uint groupSectionIdx = curParser.GetUnsigned();
+            uint groupFixupIdx = curParser.GetUnsigned();
+            TypeMapGroupState state = (TypeMapGroupState)curParser.GetUnsigned();
+            ValidateTypeMapState(state);
+
+            var groupRef = new ImportFixupReference((ImportSectionIndex)groupSectionIdx, (ImportCellIndex)groupFixupIdx);
+            ProxyTypeMapInnerHandle innerHandle = default;
+
+            if (state is TypeMapGroupState.PrecomputedFixups or TypeMapGroupState.PrecomputedFixupsAndTypeNames)
+            {
+                if (curParser.Offset >= (uint)tableEndOffset)
+                    throw new BadImageFormatException("Proxy type-map inner table starts outside its containing section.");
+                innerHandle = (ProxyTypeMapInnerHandle)(curParser.Offset - (uint)table.Offset);
+            }
+
+            return new ProxyTypeMapGroup(groupRef, state, innerHandle);
         }
 
         /// <summary>
         /// Enumerates the inner entries of a ProxyTypeMaps group referenced by
         /// <paramref name="handle"/>. Each entry maps a key type reference to a value type reference.
         /// </summary>
-        /// <param name="section">The ProxyTypeMaps section that contains the inner table.</param>
+        /// <param name="table">The ProxyTypeMaps table that contains the inner table.</param>
         /// <param name="handle">The section-relative inner handle from <see cref="ProxyTypeMapGroup.InnerHandle"/>.</param>
         public IReadOnlyList<ProxyTypeMapEntry> GetProxyTypeMapEntries(
-            ReadyToRunSection section,
+            ProxyTypeMapsHashTableHandle table,
             ProxyTypeMapInnerHandle handle)
         {
             EnsureSemanticDecodingSupported(nameof(GetProxyTypeMapEntries));
             if (handle == default)
                 return Array.Empty<ProxyTypeMapEntry>();
 
-            int sectionOffset = ValidateAndGetSectionOffset(
-                section,
-                Internal.Runtime.ReadyToRunSectionType.ProxyTypeMaps,
-                nameof(GetProxyTypeMapEntries));
-            int sectionEndOffset = checked(sectionOffset + section.Size);
-            if ((uint)handle >= (uint)section.Size)
+            int sectionOffset = table.Offset;
+            if (table.Size <= 0 || sectionOffset < 0 || (long)sectionOffset + table.Size > ImageEndOffset)
+                throw new ArgumentException("The type-map table handle does not belong to this image.", nameof(table));
+            int sectionEndOffset = sectionOffset + table.Size;
+            if ((uint)handle >= (uint)table.Size)
                 throw new BadImageFormatException("Proxy type-map inner-table offset is outside its section.");
 
             uint innerOffset = checked((uint)(sectionOffset + (int)(uint)handle));
@@ -181,23 +237,23 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// <summary>
         /// Reads the serialized name pairs appended after the inner hashtable of a version 28 or later type-map group.
         /// </summary>
-        /// <param name="group">A group from <see cref="ProxyTypeMapsTable.Groups"/>.</param>
-        /// <returns>The named entries, or an empty list when <see cref="ProxyTypeMapGroup.State"/> is not 2.</returns>
+        /// <param name="table">The ProxyTypeMaps table containing <paramref name="group"/>.</param>
+        /// <param name="group">A group from <see cref="ReadyToRunReader.GetProxyTypeMapGroup"/>.</param>
+        /// <returns>The named entries, or an empty list when <see cref="ProxyTypeMapGroup.State"/> is not <see cref="TypeMapGroupState.PrecomputedFixupsAndTypeNames"/>.</returns>
         public IReadOnlyList<TypeMapNamedEntry> GetProxyTypeMapNamedEntries(
-            ReadyToRunSection section,
+            ProxyTypeMapsHashTableHandle table,
             ProxyTypeMapGroup group)
         {
             EnsureSemanticDecodingSupported(nameof(GetProxyTypeMapNamedEntries));
             ArgumentNullException.ThrowIfNull(group);
-            int sectionOffset = ValidateAndGetSectionOffset(
-                section,
-                Internal.Runtime.ReadyToRunSectionType.ProxyTypeMaps,
-                nameof(GetProxyTypeMapNamedEntries));
-            int sectionEndOffset = checked(sectionOffset + section.Size);
-            if ((uint)group.InnerHandle >= (uint)section.Size)
+            int sectionOffset = table.Offset;
+            if (table.Size <= 0 || sectionOffset < 0 || (long)sectionOffset + table.Size > ImageEndOffset)
+                throw new ArgumentException("The type-map table handle does not belong to this image.", nameof(table));
+            int sectionEndOffset = sectionOffset + table.Size;
+            if ((uint)group.InnerHandle >= (uint)table.Size)
                 throw new BadImageFormatException("Proxy type-map inner-table offset is outside its section.");
 
-            return group.State == 2
+            return group.State == TypeMapGroupState.PrecomputedFixupsAndTypeNames
                 ? ReadTypeMapNamedEntries(
                     checked((uint)(sectionOffset + (int)(uint)group.InnerHandle)),
                     sectionEndOffset)

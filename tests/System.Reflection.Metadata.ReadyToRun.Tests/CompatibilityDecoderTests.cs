@@ -5,6 +5,8 @@ using System.Reflection.PortableExecutable;
 using System.Reflection.Metadata.ReadyToRun.x86;
 using Amd64GcInfo = System.Reflection.Metadata.ReadyToRun.Amd64.GcInfo;
 
+using Internal.Runtime;
+
 using Xunit;
 
 namespace System.Reflection.Metadata.ReadyToRun.Tests;
@@ -108,7 +110,7 @@ public sealed class CompatibilityDecoderTests
         byte[] debugBlob = BuildClassicDebugBlob(boundsBlob, Array.Empty<byte>());
 
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, CreateDebugInfoImage(majorVersion: 15, minorVersion: 0, debugBlob));
-        DebugInfo debugInfo = reader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset);
+        DebugInfo debugInfo = GetDebugInfo(reader);
 
         DebugInfoBoundsEntry entry = Assert.Single(debugInfo.Bounds);
         Assert.Equal<uint>(5, entry.NativeOffsetDelta);
@@ -123,7 +125,7 @@ public sealed class CompatibilityDecoderTests
         byte[] debugBlob = BuildClassicDebugBlob(boundsBlob, Array.Empty<byte>());
 
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, CreateDebugInfoImage(majorVersion: 16, minorVersion: 0, debugBlob));
-        DebugInfo debugInfo = reader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset);
+        DebugInfo debugInfo = GetDebugInfo(reader);
 
         DebugInfoBoundsEntry entry = Assert.Single(debugInfo.Bounds);
         Assert.Equal<uint>(5, entry.NativeOffsetDelta);
@@ -138,7 +140,7 @@ public sealed class CompatibilityDecoderTests
         byte[] debugBlob = BuildFatDebugBlob(boundsBlob, Array.Empty<byte>(), uninstrumentedBoundsByteCount: 0, patchpointInfoByteCount: 0, richDebugInfoByteCount: 0, asyncInfoByteCount: 0);
 
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, CreateDebugInfoImage(majorVersion: 17, minorVersion: 0, debugBlob));
-        DebugInfo debugInfo = reader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset);
+        DebugInfo debugInfo = GetDebugInfo(reader);
 
         DebugInfoBoundsEntry entry = Assert.Single(debugInfo.Bounds);
         Assert.Equal<uint>(5, entry.NativeOffsetDelta);
@@ -154,12 +156,26 @@ public sealed class CompatibilityDecoderTests
             [0xA5]);
 
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, CreateDebugInfoImage(majorVersion: 17, minorVersion: 0, debugBlob));
-        DebugInfo debugInfo = reader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset);
+        DebugInfo debugInfo = GetDebugInfo(reader);
 
         Assert.Empty(debugInfo.UninstrumentedBounds);
         Assert.Empty(debugInfo.PatchpointInfo);
         Assert.Empty(debugInfo.RichDebugInfo);
         Assert.Equal((byte)0xA5, Assert.Single(debugInfo.AsyncInfo));
+    }
+
+    [Fact]
+    public void DebugInfo_RejectsPayloadOutsideContainingSection()
+    {
+        byte[] image = CreateDebugInfoImage(majorVersion: 17, minorVersion: 0, [0x00]);
+        using ReadyToRunReader reader = CreateReader(Machine.Amd64, image);
+        var section = new ReadyToRunSection(
+            ReadyToRunSectionType.DebugInfo,
+            (ImageRVA)(uint)DebugInfoEntryOffset,
+            size: 1);
+
+        Assert.Throws<BadImageFormatException>(
+            () => reader.GetDebugInfo(SyntheticDebugInfoTable(reader, section), (DebugInfoOffset)0));
     }
 
     [Fact]
@@ -169,7 +185,7 @@ public sealed class CompatibilityDecoderTests
         byte[] debugBlob = BuildFatDebugBlob(Array.Empty<byte>(), variablesBlob, 0, 0, 0, 0);
 
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, CreateDebugInfoImage(majorVersion: 19, minorVersion: 0, debugBlob));
-        DebugInfo debugInfo = reader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset);
+        DebugInfo debugInfo = GetDebugInfo(reader);
 
         NativeVarInfo entry = Assert.Single(debugInfo.Variables);
         Assert.Equal((int)ImplicitILArguments.MaxV19, entry.VariableNumber);
@@ -187,7 +203,7 @@ public sealed class CompatibilityDecoderTests
         byte[] debugBlob = BuildFatDebugBlob(Array.Empty<byte>(), variablesBlob, 0, 0, 0, 0);
 
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, CreateDebugInfoImage(majorVersion: 20, minorVersion: 0, debugBlob));
-        DebugInfo debugInfo = reader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset);
+        DebugInfo debugInfo = GetDebugInfo(reader);
 
         NativeVarInfo entry = Assert.Single(debugInfo.Variables);
         Assert.Equal((int)ImplicitILArguments.AsyncContinuation, entry.VariableNumber);
@@ -203,7 +219,7 @@ public sealed class CompatibilityDecoderTests
         byte[] debugBlob = BuildFatDebugBlob(Array.Empty<byte>(), variablesBlob, 0, 0, 0, 0);
 
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, CreateDebugInfoImage(majorVersion: 22, minorVersion: 0, debugBlob));
-        DebugInfo debugInfo = reader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset);
+        DebugInfo debugInfo = GetDebugInfo(reader);
 
         NativeVarInfo entry = Assert.Single(debugInfo.Variables);
         Assert.Equal((int)ImplicitILArguments.CallReturnValue, entry.VariableNumber);
@@ -219,7 +235,7 @@ public sealed class CompatibilityDecoderTests
         byte[] debugBlob = BuildFatDebugBlob(Array.Empty<byte>(), variablesBlob, 0, 0, 0, 0);
 
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, CreateDebugInfoImage(majorVersion: 22, minorVersion: 0, debugBlob));
-        Assert.Throws<BadImageFormatException>(() => reader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset));
+        Assert.Throws<BadImageFormatException>(() => GetDebugInfo(reader));
     }
 
     [Fact]
@@ -229,7 +245,7 @@ public sealed class CompatibilityDecoderTests
             Machine.Amd64,
             CreateDebugInfoImage(majorVersion: 35, minorVersion: 0, [0x00]));
         Assert.Throws<NotSupportedException>(
-            () => debugReader.GetDebugInfo((DebugInfoOffset)(uint)DebugInfoEntryOffset));
+            () => GetDebugInfo(debugReader));
 
         using ReadyToRunReader gcReader = CreateReader(
             Machine.Amd64,
@@ -244,6 +260,20 @@ public sealed class CompatibilityDecoderTests
             new SyntheticPlatformBinaryReader(machine),
             new NativeReader(new MemoryStream(image), leaveOpen: false));
     }
+
+    private static DebugInfo GetDebugInfo(ReadyToRunReader reader)
+    {
+        var section = new ReadyToRunSection(
+            ReadyToRunSectionType.DebugInfo,
+            (ImageRVA)(uint)DebugInfoEntryOffset,
+            reader.ImageEndOffset - DebugInfoEntryOffset);
+        return reader.GetDebugInfo(SyntheticDebugInfoTable(reader, section), (DebugInfoOffset)0);
+    }
+
+    // The synthetic images place a raw debug-info blob at the section start rather than a NativeArray,
+    // so build the table handle directly over that range.
+    private static DebugInfoTable SyntheticDebugInfoTable(ReadyToRunReader reader, ReadyToRunSection section)
+        => new(new NativeArrayHandle((int)reader.GetOffsetForRVA(section.RelativeVirtualAddress), count: 0), section.Size);
 
     private static byte[] CreateAmd64GcInfoImage(ushort majorVersion, ushort minorVersion, byte[] gcInfoPayload)
     {

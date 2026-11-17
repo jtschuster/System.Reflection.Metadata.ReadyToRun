@@ -79,9 +79,16 @@ flowchart TB
 This ownership boundary prevents a model row from combining one inline field with data obtained by
 dereferencing an unrelated RVA. Nested type-map handles, debug-info offsets, method payloads, and PGO
 payloads retain their containing range inside the reader before later traversal
-(`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:126`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:47`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:48`).
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:172`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:100`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:129`).
+
+Hashtable sections (`AvailableTypes`, `InliningInfo2`, `CrossModuleInlineInfo`, `InstanceMethodEntryPoints`,
+`PgoInstrumentationData`, and the type-map sections) share one access pattern. `Get*Table(section)` validates
+the section and the hashtable header and returns an opaque table handle without decoding entries.
+`Enumerate*` lazily yields table-relative entry handles, `Lookup*(table, hash, predicate)` probes only the
+bucket for `hash`, and `Get*(table, handle)` decodes one entry. Malformed entry data is reported by the
+call that decodes it, not when the table is opened (`src/ILCompiler.Reflection.ReadyToRun.Structural/NativeHashtableSupport.cs`).
 
 ## Supported version ledger
 
@@ -691,6 +698,11 @@ struct READYTORUN_EXCEPTION_CLAUSE
 };
 ```
 
+The final lookup-table record is a sentinel: `MethodStart` is `0xFFFFFFFF`, and
+`ExceptionInfo` is the end RVA of the last method's exception handling information.
+`ExceptionInfoTable.Entries` includes this record so the length for each method can be
+calculated from the next record's exception info RVA.
+
 Same encoding is as used by NGen.
 
 ## ReadyToRunSectionType.DebugInfo
@@ -698,12 +710,17 @@ Same encoding is as used by NGen.
 This section is a NativeArray mapping runtime-function IDs to debug payload handles. A payload begins
 with bounds and variable-map lengths; R2R 16.0 switches bounds to the packed representation, while
 R2R 17.0 adds the fat header used for optional uninstrumented bounds, patchpoints, rich debug data,
-and async information (`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:28`,
+and async information (`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:49`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfo.cs:115`).
 
-NativeArray lookbacks and every declared payload length must remain inside this section. The reader
-registers the section range when it produces each `DebugInfoOffset`, so a later payload decode cannot
-consume an adjacent section (`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:42`,
+`GetDebugInfoTable(section)` reads only the NativeArray header. Use
+`TryGetDebugInfoOffset(table, runtimeFunctionIndex, out offset)` for a single method or
+`EnumerateDebugInfoEntries(table)` to walk populated slots, then `GetDebugInfo(table, offset)`.
+`DebugInfoOffset` is relative to the start of the section.
+
+NativeArray lookbacks and every declared payload length must remain inside this section. The
+`DebugInfoTable` carries the section range, so a later payload decode cannot consume an adjacent
+section (`src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfoTable.cs:100`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/DebugInfo.cs:97`).
 
 ## ReadyToRunSectionType.DelayLoadMethodCallThunks
@@ -762,7 +779,7 @@ Each record contains an inlinee MethodDef RID followed by a signed offset, relat
 index, to its inliner list. The target list starts with a nibble-encoded count followed by
 delta-encoded inliner RIDs (`src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:31`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/InliningInfoTable.cs:72`). The reader exposes each
-list as its encoded index-relative displacement in `InlinerListOffset`; pass it to
+list as its section-relative offset in `InlinerListOffset`; pass it to
 `GetInliners(section, offset)` together with the same section.
 
 The format was deprecated in 4.1 in favor of `InliningInfo2`. Negative or non-record-aligned index
@@ -908,9 +925,14 @@ back-reference delta to a previously emitted schema blob. The remaining high bit
 format version (`src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:31`,
 `src/ILCompiler.Reflection.ReadyToRun.Structural/PgoInstrumentationDataTable.cs:94`).
 
-The structural API returns the raw `PgoDataBlobBackReferenceDelta` for tag 3 and `null` for tag 1.
-It does not resolve the delta to an image offset; interpretation of the schema-driven PGO records
-is left to higher layers.
+The back-reference delta is subtracted from the offset where the encoded delta begins.
+
+The structural API composes PGO locations by addition: `GetPgoInstrumentationDataTable` returns a
+`PgoHashTableHandle`, entries are `PgoEntryHandle` offsets relative to the table start, and
+`GetPgoEntry(table, handle)` decodes a `PgoEntry`. `GetPgoDataBlobImageOffset(table, entry)` returns
+the blob's `PgoDataBlobImageOffset` for both inline and back-referenced blobs.
+The raw tag 3 delta is still available as `PgoDataBlobBackReferenceDelta` (`null` for tag 1). The
+blob has no length prefix; interpretation of the schema-driven PGO records is left to higher layers.
 
 ## ReadyToRunSectionType.ManifestAssemblyMvids (v5.3+)
 
@@ -994,15 +1016,18 @@ This assembly section is an outer NativeHashtable of type-map groups. Each outer
 
 The inner table maps a compressed UTF-8 byte length and key bytes to a result
 `ImportFixupReference`. UTF-8 is decoded strictly, and both the key and inner hashtable must remain
-inside the original section (`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:99`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:141`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:158`).
+inside the original section (`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:145`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:172`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/ExternalTypeMapsTable.cs:209`).
+
+The state value is exposed as `TypeMapGroupState`: `RuntimeAttributeFallback` (0, no inner table),
+`PrecomputedFixups` (1), and `PrecomputedFixupsAndTypeNames` (2).
 
 In V28 and later, state 2 appends a counted sequence of key and serialized target-name pairs
-after the inner hashtable. `GetExternalTypeMapNamedEntries(section, group)` reads those entries separately.
+after the inner hashtable. `GetExternalTypeMapNamedEntries(table, group)` reads those entries separately.
 
 The group model stores the offset of the inline inner table relative to the start of the section.
-Pass both the section and handle to `GetExternalTypeMapEntries(section, handle)` to traverse it.
+Pass both the outer table handle and inner handle to `GetExternalTypeMapEntries(table, innerHandle)` to traverse it.
 
 ## ReadyToRunSectionType.ProxyTypeMaps (v18.3+)
 
@@ -1015,10 +1040,10 @@ inner entry contains two adjacent type references instead of a string:
 | ValueRef | Compressed import-section index, then compressed fixup index |
 
 In V28 and later, state 2 appends a counted sequence of serialized source and proxy names.
-`GetProxyTypeMapNamedEntries(section, group)` reads those entries separately.
+`GetProxyTypeMapNamedEntries(table, group)` reads those entries separately.
 
 The inner-table handle is the offset of the inline table relative to the start of this section.
-Pass both the section and handle to `GetProxyTypeMapEntries(section, handle)` to traverse it.
+Pass both the outer table handle and inner handle to `GetProxyTypeMapEntries(table, innerHandle)` to traverse it.
 
 ## ReadyToRunSectionType.TypeMapAssemblyTargets (v18.3+)
 
@@ -1029,8 +1054,8 @@ This section is a NativeHashtable mapping a group type to an ordered module sequ
 3. That many adjacent module import-section index and fixup index pairs.
 
 The count is bounded by the bytes remaining in the section before allocation
-(`src/ILCompiler.Reflection.ReadyToRun.Structural/TypeMapAssemblyTargetsTable.cs:60`,
-`src/ILCompiler.Reflection.ReadyToRun.Structural/TypeMapAssemblyTargetsTable.cs:82`).
+(`src/ILCompiler.Reflection.ReadyToRun.Structural/TypeMapAssemblyTargetsTable.cs:104`,
+`src/ILCompiler.Reflection.ReadyToRun.Structural/TypeMapAssemblyTargetsTable.cs:113`).
 
 All references in sections 124-126 are structural pairs. `ImportFixupReference` deliberately stores
 only `ImportSectionIndex` and `FixupIndex`; resolving either index to a runtime type or module is not

@@ -190,8 +190,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             {
                 if (s.Type != ReadyToRunSectionType.CrossModuleInlineInfo)
                     continue;
-                CrossModuleInlineInfoTable table = _reader.GetCrossModuleInlineInfoTable(s);
-                foreach (CrossModuleInlineEntry entry in table.Entries)
+                foreach (CrossModuleInlineEntry entry in EnumerateCrossModuleInlineEntries(s))
                 {
                     string inlinee = FormatCrossModuleInlinee(entry);
                     foreach (CrossModuleInlinerRef inliner in entry.Inliners)
@@ -223,8 +222,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             {
                 if (s.Type != ReadyToRunSectionType.CrossModuleInlineInfo)
                     continue;
-                CrossModuleInlineInfoTable table = _reader.GetCrossModuleInlineInfoTable(s);
-                foreach (CrossModuleInlineEntry entry in table.Entries)
+                foreach (CrossModuleInlineEntry entry in EnumerateCrossModuleInlineEntries(s))
                 {
                     string inlinee = FormatCrossModuleInlinee(entry);
                     if (!inlinee.Contains(inlineeMethodName, StringComparison.Ordinal))
@@ -376,8 +374,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
                         break;
                     case ReadyToRunSectionType.CrossModuleInlineInfo:
                         {
-                            CrossModuleInlineInfoTable table = _reader.GetCrossModuleInlineInfoTable(s);
-                            foreach (CrossModuleInlineEntry e in table.Entries)
+                            foreach (CrossModuleInlineEntry e in EnumerateCrossModuleInlineEntries(s))
                             {
                                 string inlinee = FormatCrossModuleInlinee(e);
                                 foreach (CrossModuleInlinerRef inliner in e.Inliners)
@@ -398,14 +395,15 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
 
         private IEnumerable<(string inliner, string inlinee)> EnumerateInliningInfo2Pairs(ReadyToRunSection section, int ownerModuleIndex)
         {
-            InliningInfo2Table table = _reader.GetInliningInfo2Table(section);
-            foreach (InliningInfo2Entry entry in table.Entries)
+            InliningInfo2HashTableHandle table = _reader.GetInliningInfo2Table(section);
+            foreach (InliningInfo2EntryHandle handle in _reader.EnumerateInliningInfo2Entries(table))
             {
-                int inlineeModule = entry.InlineeHasModule ? (int)entry.InlineeModuleIndex : ownerModuleIndex;
+                InliningInfo2Entry entry = _reader.GetInliningInfo2Entry(table, handle);
+                int inlineeModule = entry.InlineeModuleIndex is ModuleIndex inlineeIndex ? (int)inlineeIndex : ownerModuleIndex;
                 string inlinee = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(inlineeModule), (int)entry.InlineeRid);
                 foreach (InlinerRef inlinerRef in entry.Inliners)
                 {
-                    int inlinerModule = inlinerRef.HasModule ? (int)inlinerRef.ModuleIndex : ownerModuleIndex;
+                    int inlinerModule = inlinerRef.ModuleIndex is ModuleIndex inlinerIndex ? (int)inlinerIndex : ownerModuleIndex;
                     string inliner = MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader(inlinerModule), (int)inlinerRef.Rid);
                     yield return (inliner, inlinee);
                 }
@@ -457,16 +455,23 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
 
         private string FormatCrossModuleInlinee(CrossModuleInlineEntry entry)
         {
-            if (entry.IsCrossModuleInlinee)
-                return ResolveILBodyImport(entry.InlineeIndex);
-            return MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader((int)entry.InlineeModuleIndex), (int)entry.InlineeIndex);
+            if (entry.InlineeILBodyImportIndex is ImportCellIndex ilBodyIndex)
+                return ResolveILBodyImport((uint)ilBodyIndex);
+            return MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader((int)(entry.InlineeModuleIndex ?? default)), (int)entry.InlineeRid!.Value);
         }
 
         private string FormatCrossModuleInliner(CrossModuleInlinerRef inliner)
         {
-            if (inliner.IsCrossModule)
-                return ResolveILBodyImport(inliner.Index);
-            return MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader((int)inliner.ModuleIndex), (int)inliner.Index);
+            if (inliner.ILBodyImportIndex is ImportCellIndex ilBodyIndex)
+                return ResolveILBodyImport((uint)ilBodyIndex);
+            return MethodInventory.SafeFormatMethodDef(_resolver.GetMetadataReader((int)(inliner.ModuleIndex ?? default)), (int)inliner.Rid!.Value);
+        }
+
+        private IEnumerable<CrossModuleInlineEntry> EnumerateCrossModuleInlineEntries(ReadyToRunSection section)
+        {
+            CrossModuleInlineInfoHashTableHandle table = _reader.GetCrossModuleInlineInfoTable(section);
+            foreach (CrossModuleInlineEntryHandle handle in _reader.EnumerateCrossModuleInlineEntries(table))
+                yield return _reader.GetCrossModuleInlineEntry(table, handle);
         }
 
         private string ResolveILBodyImport(uint importIndex)

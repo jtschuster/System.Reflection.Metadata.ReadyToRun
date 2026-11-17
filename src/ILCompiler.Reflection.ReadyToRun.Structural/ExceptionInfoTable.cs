@@ -8,13 +8,22 @@ namespace System.Reflection.Metadata.ReadyToRun
 {
     /// <summary>
     /// Structural projection of the ExceptionInfo section.
-    /// Each entry maps a method RVA to its EH info RVA.
+    /// Each method entry maps a method RVA to its EH info RVA.
     /// </summary>
     /// <remarks>
+    /// <code>
+    /// repeated { method code RVA, EH info RVA }
+    /// terminal { 0xFFFFFFFF, end RVA of the final method's EH data }
+    /// </code>
     /// Crossgen2 emitter: <c>ExceptionInfoLookupTableNode</c>.
     /// </remarks>
     public sealed class ExceptionInfoTable
     {
+        /// <summary>
+        /// Records in image order. The final record is a sentinel, not a method entry:
+        /// its method RVA is <c>0xFFFFFFFF</c>, and its EH info RVA marks the end of the
+        /// last method's exception handling information.
+        /// </summary>
         public IReadOnlyList<ExceptionInfoEntry> Entries { get; }
 
         internal ExceptionInfoTable(List<ExceptionInfoEntry> entries)
@@ -41,8 +50,6 @@ namespace System.Reflection.Metadata.ReadyToRun
 
             var entries = new List<ExceptionInfoEntry>();
 
-            // The encoding ends with a sentinel record (MethodRva = ~0u, EhInfoRva = endOfEhInfo)
-            // used to compute the size of the previous record's clauses. It is not a real entry.
             int totalRecords = length / recordSize;
             int realEntries = totalRecords - 1;
 
@@ -53,25 +60,32 @@ namespace System.Reflection.Metadata.ReadyToRun
                 entries.Add(new ExceptionInfoEntry(methodRva, ehInfoRva));
             }
 
+            // The final record is a sentinel whose EH info RVA delimits the last method's clauses.
             int sentinelMethodRva = _nativeReader.ReadInt32(ref offset);
-            _nativeReader.ReadInt32(ref offset);
+            var sentinelEhInfoRva = (EHInfoRva)_nativeReader.ReadInt32(ref offset);
             if (sentinelMethodRva != -1)
                 throw new BadImageFormatException("ExceptionInfo section is missing its terminal sentinel record.");
 
+            entries.Add(new ExceptionInfoEntry((CodeRva)sentinelMethodRva, sentinelEhInfoRva));
             return new ExceptionInfoTable(entries);
         }
     }
 
     /// <summary>
     /// A single entry in the ExceptionInfo table: maps a raw method code RVA
-    /// to the RVA of its exception handling information.
+    /// to the RVA of its exception handling information. The final entry is a sentinel.
     /// </summary>
+    /// <remarks>
+    /// <code>
+    /// uint32 method code RVA | uint32 EH info RVA
+    /// </code>
+    /// </remarks>
     public sealed class ExceptionInfoEntry
     {
-        /// <summary>Raw RVA of the method code. This is not a PCode value.</summary>
+        /// <summary>Raw RVA of the method code, or <c>0xFFFFFFFF</c> for the sentinel. This is not a PCode value.</summary>
         public CodeRva MethodRva { get; }
 
-        /// <summary>RVA of the exception handling info.</summary>
+        /// <summary>RVA of the exception handling info, or its end RVA for the sentinel.</summary>
         public EHInfoRva EhInfoRva { get; }
 
         internal ExceptionInfoEntry(CodeRva methodRva, EHInfoRva ehInfoRva)

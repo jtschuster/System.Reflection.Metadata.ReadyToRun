@@ -6,6 +6,19 @@ using System.Text;
 
 namespace System.Reflection.Metadata.ReadyToRun;
 
+/// <summary>How the runtime resolves a type-map group (runtime <c>TypeMapState</c>).</summary>
+public enum TypeMapGroupState : uint
+{
+    /// <summary>No precomputed data; the runtime falls back to scanning type-map attributes.</summary>
+    RuntimeAttributeFallback = 0,
+
+    /// <summary>An inner hashtable of precomputed fixups follows the group.</summary>
+    PrecomputedFixups = 1,
+
+    /// <summary>Precomputed fixups followed by serialized type-name pairs (R2R 28+).</summary>
+    PrecomputedFixupsAndTypeNames = 2,
+}
+
 /// <summary>A pair of strings in a type map's named-entry sequence.</summary>
 public sealed class TypeMapNamedEntry
 {
@@ -17,11 +30,12 @@ public sealed class TypeMapNamedEntry
 
 public partial class ReadyToRunReader
 {
-    private void ValidateTypeMapState(uint state)
+    private void ValidateTypeMapState(TypeMapGroupState state)
     {
         if (ValidationMode == ReadyToRunValidationMode.Strict &&
-            (state > 2 || (state == 2 && !FormatProfile.IsAtLeast(28, 0))))
-            throw new NotSupportedException($"Type map state {state} is not supported in this ReadyToRun version.");
+            (state > TypeMapGroupState.PrecomputedFixupsAndTypeNames ||
+             (state == TypeMapGroupState.PrecomputedFixupsAndTypeNames && !FormatProfile.IsAtLeast(28, 0))))
+            throw new NotSupportedException($"Type map state {(uint)state} is not supported in this ReadyToRun version.");
     }
 
     private IReadOnlyList<TypeMapNamedEntry> ReadTypeMapNamedEntries(uint handle, int sectionEndOffset)

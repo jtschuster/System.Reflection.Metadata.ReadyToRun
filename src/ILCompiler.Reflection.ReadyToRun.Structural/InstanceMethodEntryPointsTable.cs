@@ -7,161 +7,153 @@ using System.Collections.Generic;
 namespace System.Reflection.Metadata.ReadyToRun
 {
     /// <summary>
-    /// Structural projection of the InstanceMethodEntryPoints section: a NativeHashtable keyed by
-    /// version-resilient method hashcode. Entries are not eagerly decoded; resolve through the
-    /// reader with <see cref="ReadyToRunReader.LookupInstanceMethodEntryPoint"/> for a keyed probe
-    /// or <see cref="ReadyToRunReader.EnumerateInstanceMethodEntries"/> for a full scan.
+    /// Handle to the NativeHashtable stored in an InstanceMethodEntryPoints section, keyed by
+    /// version-resilient method hashcode. Obtain one from
+    /// <see cref="ReadyToRunReader.GetInstanceMethodEntryPointsTable(ReadyToRunSection)"/>.
     /// </summary>
     /// <remarks>
+    /// <code>
+    /// NativeHashtable bucket -> { low hash byte, entry }
+    /// entry: method signature | DecodeUnsigned(id) | [DecodeUnsigned(fixup back-reference delta)]
+    ///                           id bit 0 = has fixups, bit 1 = back-referenced fixup list,
+    ///                           remaining bits = RuntimeFunctions index
+    /// </code>
+    /// Addressing composes by addition: <c>table start + <see cref="InstanceMethodEntryHandle"/> = entry image offset</c>.
     /// Crossgen2 emitter: <c>InstanceEntryPointTableNode</c>.
     /// </remarks>
-    public sealed class InstanceMethodEntryPointsTable
+    public readonly struct InstanceMethodHashTableHandle
     {
-        internal ImageRVA SectionRva { get; }
-        internal int SectionSize { get; }
+        internal int Offset { get; }
 
-        internal InstanceMethodEntryPointsTable(ImageRVA sectionRva, int sectionSize)
+        internal int Size { get; }
+
+        internal InstanceMethodHashTableHandle(int offset, int size)
         {
-            SectionRva = sectionRva;
-            SectionSize = sectionSize;
+            Offset = offset;
+            Size = size;
+        }
+    }
+
+    /// <summary>
+    /// One raw slot from an InstanceMethodEntryPoints hashtable bucket: the entry handle and the
+    /// low byte of the version-resilient hashcode stored alongside it in the bucket.
+    /// </summary>
+    public readonly struct InstanceMethodHashTableEntry
+    {
+        /// <summary>Entry handle, relative to the start of the hashtable.</summary>
+        public InstanceMethodEntryHandle Handle { get; }
+
+        /// <summary>Low byte of the version-resilient hashcode, as stored in the bucket.</summary>
+        public byte LowHashcode { get; }
+
+        internal InstanceMethodHashTableEntry(InstanceMethodEntryHandle handle, byte lowHashcode)
+        {
+            Handle = handle;
+            LowHashcode = lowHashcode;
         }
     }
 
     public partial class ReadyToRunReader
     {
         /// <summary>
-        /// Open the InstanceMethodEntryPoints section as an inert table that can be used for
-        /// keyed lookups or full enumeration without eagerly decoding every entry.
+        /// Open the InstanceMethodEntryPoints section as a NativeHashtable handle without decoding any entries.
         /// </summary>
-        public InstanceMethodEntryPointsTable GetInstanceMethodEntryPointsTable(ReadyToRunSection section)
+        public InstanceMethodHashTableHandle GetInstanceMethodEntryPointsTable(ReadyToRunSection section)
         {
-            ValidateAndGetSectionOffset(
+            int sectionOffset = ValidateAndGetNativeHashtableSectionOffset(
                 section,
                 Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints,
                 nameof(GetInstanceMethodEntryPointsTable));
-
-            return new InstanceMethodEntryPointsTable(section.RelativeVirtualAddress, section.Size);
-        }
-
-        private NativeHashtable OpenInstanceMethodEntryPointsHashtable(
-            InstanceMethodEntryPointsTable table,
-            out int sectionOffset,
-            out int sectionEndOffset)
-        {
-            var section = new ReadyToRunSection(
-                Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints,
-                table.SectionRva,
-                table.SectionSize);
-            sectionOffset = ValidateAndGetSectionOffset(section);
-            sectionEndOffset = checked(sectionOffset + table.SectionSize);
-            NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            return new NativeHashtable(_nativeReader, parser, (uint)sectionEndOffset);
+            return new InstanceMethodHashTableHandle(sectionOffset, section.Size);
         }
 
         /// <summary>
-        /// Look up an instance-method entry by version-resilient hashcode and signature predicate.
-        /// Mirrors the runtime VM's pattern of probing the NativeHashtable bucket for entries with
-        /// a matching low-byte hash, decoding each candidate's signature, and asking the caller's
-        /// predicate to confirm the full match (signature equality is decided by the caller because
-        /// only it knows the original key being resolved).
+        /// Lazily enumerate every slot in the InstanceMethodEntryPoints hashtable.
         /// </summary>
-        /// <returns>The decoded payload for the first matching entry, or <c>null</c> if no entry matches.</returns>
-        public InstanceMethodPayload LookupInstanceMethodEntryPoint(InstanceMethodEntryPointsTable table, int versionResilientHash, Func<MethodSignature, bool> predicate)
-            => LookupInstanceMethodEntryPoint(table, versionResilientHash, predicate, SignatureDecodingOptions);
+        public IEnumerable<InstanceMethodHashTableEntry> EnumerateInstanceMethodEntries(InstanceMethodHashTableHandle table)
+        {
+            EnsureSemanticDecodingSupported(nameof(EnumerateInstanceMethodEntries));
+            NativeHashtable hashtable = OpenNativeHashtable(table.Offset, table.Size, nameof(table), out int tableEndOffset);
+            return Enumerate(hashtable, table.Offset, tableEndOffset);
+
+            static IEnumerable<InstanceMethodHashTableEntry> Enumerate(NativeHashtable hashtable, int tableOffset, int tableEndOffset)
+            {
+                NativeHashtable.AllEntriesEnumerator enumerator = hashtable.EnumerateAllEntries();
+                for (NativeParser curParser = enumerator.GetNext(); !curParser.IsNull(); curParser = enumerator.GetNext())
+                {
+                    var handle = (InstanceMethodEntryHandle)ToTableRelativeOffset(curParser.Offset, tableOffset, tableEndOffset);
+                    yield return new InstanceMethodHashTableEntry(handle, curParser.LowHashcode);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Probe the bucket for <paramref name="versionResilientHash"/> and return the first entry whose
+        /// method signature satisfies <paramref name="predicate"/>. Mirrors the runtime: entries are filtered
+        /// by low hash byte, then the caller confirms the full signature match.
+        /// </summary>
+        /// <returns>The matching entry, or <see langword="null"/> if no entry matches.</returns>
+        public InstanceMethodEntryHandle? LookupInstanceMethodEntry(
+            InstanceMethodHashTableHandle table,
+            int versionResilientHash,
+            Func<MethodSignature, bool> predicate)
+            => LookupInstanceMethodEntry(table, versionResilientHash, predicate, SignatureDecodingOptions);
 
         /// <summary>
         /// Look up an instance-method entry using explicit ReadyToRun version/policy settings.
         /// </summary>
-        public InstanceMethodPayload LookupInstanceMethodEntryPoint(
-            InstanceMethodEntryPointsTable table,
+        public InstanceMethodEntryHandle? LookupInstanceMethodEntry(
+            InstanceMethodHashTableHandle table,
             int versionResilientHash,
             Func<MethodSignature, bool> predicate,
             IReadyToRunSignatureDecodingOptions options)
         {
-            EnsureSemanticDecodingSupported(nameof(LookupInstanceMethodEntryPoint));
+            EnsureSemanticDecodingSupported(nameof(LookupInstanceMethodEntry));
             ArgumentNullException.ThrowIfNull(predicate);
             ArgumentNullException.ThrowIfNull(options);
 
-            NativeHashtable hashtable = OpenInstanceMethodEntryPointsHashtable(
-                table,
-                out int sectionOffset,
-                out int sectionEndOffset);
+            NativeHashtable hashtable = OpenNativeHashtable(table.Offset, table.Size, nameof(table), out int tableEndOffset);
             NativeHashtable.Enumerator enumerator = hashtable.Lookup(versionResilientHash);
 
-            NativeParser entryParser = enumerator.GetNext();
-            while (!entryParser.IsNull())
+            for (NativeParser entryParser = enumerator.GetNext(); !entryParser.IsNull(); entryParser = enumerator.GetNext())
             {
-                int payloadOffset = (int)entryParser.Offset;
-                EnsureOffsetWithinRange(payloadOffset, sectionOffset, sectionEndOffset);
-                R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
-                EnsureOffsetWithinRange(signature.EndOffset, sectionOffset, sectionEndOffset);
-                MethodSignature methodSig = MethodSignature.FromSignature(signature.Signature);
-                if (predicate(methodSig))
-                {
-                    (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) =
-                        DecodeRuntimeFunctionIdAndFixupCellList(signature.EndOffset, sectionOffset, sectionEndOffset);
-                    return new InstanceMethodPayload(signature.Signature, runtimeFunctionIndex, fixupCellListHandle);
-                }
-                entryParser = enumerator.GetNext();
+                uint relativeOffset = ToTableRelativeOffset(entryParser.Offset, table.Offset, tableEndOffset);
+                R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(
+                    _nativeReader, (int)entryParser.Offset, TargetPointerSize, options);
+                EnsureOffsetWithinRange(signature.EndOffset, table.Offset, tableEndOffset);
+                if (predicate(MethodSignature.FromSignature(signature.Signature)))
+                    return (InstanceMethodEntryHandle)relativeOffset;
             }
 
             return null;
         }
 
         /// <summary>
-        /// Lazily enumerate every entry in the InstanceMethodEntryPoints hashtable. Each yielded
-        /// <see cref="InstanceMethodEntry"/> carries only a payload offset and a low hashcode byte;
-        /// call <see cref="GetInstanceMethodPayload(InstanceMethodEntryPointsTable, InstanceMethodEntry)"/> to decode the signature
-        /// and entry-point data on demand.
+        /// Decode an instance-method entry: the method signature, followed by the runtime-function index
+        /// and optional fixup-list handle.
         /// </summary>
-        public IEnumerable<InstanceMethodEntry> EnumerateInstanceMethodEntries(InstanceMethodEntryPointsTable table)
-        {
-            EnsureSemanticDecodingSupported(nameof(EnumerateInstanceMethodEntries));
-            NativeHashtable hashtable = OpenInstanceMethodEntryPointsHashtable(
-                table,
-                out int sectionOffset,
-                out int sectionEndOffset);
-            NativeHashtable.AllEntriesEnumerator enumerator = hashtable.EnumerateAllEntries();
-
-            for (NativeParser curParser = enumerator.GetNext(); !curParser.IsNull(); curParser = enumerator.GetNext())
-            {
-                EnsureOffsetWithinRange((int)curParser.Offset, sectionOffset, sectionEndOffset);
-                yield return new InstanceMethodEntry((InstanceMethodPayloadOffset)curParser.Offset, curParser.LowHashcode);
-            }
-        }
+        public InstanceMethodEntry GetInstanceMethodEntry(InstanceMethodHashTableHandle table, InstanceMethodEntryHandle handle)
+            => GetInstanceMethodEntry(table, handle, SignatureDecodingOptions);
 
         /// <summary>
-        /// Fully parse an <see cref="InstanceMethodEntry"/>: decode the method signature,
-        /// followed by the inline runtime-function-index and optional fixup-list handle. The payload
-        /// layout is method-signature || DecodeUnsigned(id) || optional back-reference.
+        /// Decode an instance-method entry using explicit ReadyToRun version/policy settings.
         /// </summary>
-        public InstanceMethodPayload GetInstanceMethodPayload(
-            InstanceMethodEntryPointsTable table,
-            InstanceMethodEntry entry)
-            => GetInstanceMethodPayload(table, entry, SignatureDecodingOptions);
-
-        /// <summary>
-        /// Fully parse an <see cref="InstanceMethodEntry"/> using explicit ReadyToRun version/policy settings.
-        /// </summary>
-        public InstanceMethodPayload GetInstanceMethodPayload(
-            InstanceMethodEntryPointsTable table,
-            InstanceMethodEntry entry,
+        public InstanceMethodEntry GetInstanceMethodEntry(
+            InstanceMethodHashTableHandle table,
+            InstanceMethodEntryHandle handle,
             IReadyToRunSignatureDecodingOptions options)
         {
-            EnsureSemanticDecodingSupported(nameof(GetInstanceMethodPayload));
-            ArgumentNullException.ThrowIfNull(table);
-            ArgumentNullException.ThrowIfNull(entry);
+            EnsureSemanticDecodingSupported(nameof(GetInstanceMethodEntry));
             ArgumentNullException.ThrowIfNull(options);
 
-            _ = OpenInstanceMethodEntryPointsHashtable(table, out int sectionOffset, out int sectionEndOffset);
-            int payloadOffset = (int)entry.PayloadOffset;
-            EnsureOffsetWithinRange(payloadOffset, sectionOffset, sectionEndOffset);
-            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, payloadOffset, TargetPointerSize, options);
-            EnsureOffsetWithinRange(signature.EndOffset, sectionOffset, sectionEndOffset);
+            _ = OpenNativeHashtable(table.Offset, table.Size, nameof(table), out int tableEndOffset);
+            int entryOffset = ToTableEntryImageOffset((uint)handle, table.Offset, tableEndOffset);
+            R2RSignatureDecodeResult signature = RawSignatureDecoder.DecodeMethodSignatureWithEndOffset(_nativeReader, entryOffset, TargetPointerSize, options);
+            EnsureOffsetWithinRange(signature.EndOffset, table.Offset, tableEndOffset);
 
-            (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellListHandle) =
-                DecodeRuntimeFunctionIdAndFixupCellList(signature.EndOffset, sectionOffset, sectionEndOffset);
-            return new InstanceMethodPayload(signature.Signature, runtimeFunctionIndex, fixupCellListHandle);
+            (RuntimeFunctionIndex runtimeFunctionIndex, FixupCellListHandle? fixupCellList) =
+                DecodeRuntimeFunctionIdAndFixupCellList(signature.EndOffset, table.Offset, tableEndOffset);
+            return new InstanceMethodEntry(signature.Signature, runtimeFunctionIndex, fixupCellList);
         }
 
         /// <summary>
@@ -188,13 +180,13 @@ namespace System.Reflection.Metadata.ReadyToRun
             {
                 if ((id & 2) != 0)
                 {
+                    int backReferenceOffset = (int)parser.Offset;
                     uint delta = parser.GetUnsigned();
-                    if (delta > parser.Offset - (uint)containingStartOffset)
+                    if (delta > (uint)(backReferenceOffset - containingStartOffset))
                         throw new BadImageFormatException("Fixup-cell list back-reference points outside its containing section.");
                 }
 
-                fixupCells = new FixupCellListHandle(
-                    (FixupCellListOffset)(uint)(encodedIdOffset - containingStartOffset));
+                fixupCells = (FixupCellListHandle)(uint)(encodedIdOffset - containingStartOffset);
                 runtimeFunctionIndex = (RuntimeFunctionIndex)(id >> 2);
             }
             else
@@ -213,38 +205,10 @@ namespace System.Reflection.Metadata.ReadyToRun
             FixupCellListHandle fixupCellList)
         {
             EnsureSemanticDecodingSupported(nameof(GetFixupCells));
-            int sectionOffset = section.Type switch
-            {
-                Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints => ValidateAndGetSectionOffset(
-                    section,
-                    Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints,
-                    nameof(GetFixupCells)),
-                Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints => ValidateAndGetSectionOffset(
-                    section,
-                    Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints,
-                    nameof(GetFixupCells)),
-                _ => throw new ArgumentException("Section must contain method entry points.", nameof(section)),
-            };
+            int sectionOffset = ValidateFixupCellListSection(section, nameof(GetFixupCells));
             int sectionEndOffset = checked(sectionOffset + section.Size);
-            if ((uint)fixupCellList.Offset >= (uint)section.Size)
-                throw new BadImageFormatException("Fixup-list reference offset is outside its section.");
 
-            var parser = new NativeParser(
-                _nativeReader,
-                checked((uint)(sectionOffset + (int)(uint)fixupCellList.Offset)),
-                (uint)sectionEndOffset);
-            uint id = parser.GetUnsigned();
-            if ((id & 1) == 0)
-                throw new BadImageFormatException("Entry-point payload does not contain a fixup list.");
-
-            int fixupOffset = (int)parser.Offset;
-            if ((id & 2) != 0)
-            {
-                uint delta = parser.GetUnsigned();
-                if (delta > parser.Offset - (uint)sectionOffset)
-                    throw new BadImageFormatException("Fixup-cell list back-reference points outside its containing section.");
-                fixupOffset = checked((int)(parser.Offset - delta));
-            }
+            int fixupOffset = (int)GetFixupCellListImageOffset(section, fixupCellList);
 
             var fixupCells = new List<FixupCellRef>();
 
@@ -283,6 +247,56 @@ namespace System.Reflection.Metadata.ReadyToRun
             return fixupCells;
         }
 
+        /// <summary>
+        /// Resolve an encoded fixup-list reference to the image offset of its nibble-encoded data.
+        /// </summary>
+        /// <param name="section">The method entry-point section that contains the handle.</param>
+        /// <param name="fixupCellList">The encoded reference handle from a method entry.</param>
+        public FixupCellListImageOffset GetFixupCellListImageOffset(
+            ReadyToRunSection section,
+            FixupCellListHandle fixupCellList)
+        {
+            EnsureSemanticDecodingSupported(nameof(GetFixupCellListImageOffset));
+            int sectionOffset = ValidateFixupCellListSection(section, nameof(GetFixupCellListImageOffset));
+            int sectionEndOffset = checked(sectionOffset + section.Size);
+            if ((uint)fixupCellList >= (uint)section.Size)
+                throw new BadImageFormatException("Fixup-list reference offset is outside its section.");
+
+            var parser = new NativeParser(
+                _nativeReader,
+                checked((uint)(sectionOffset + (int)(uint)fixupCellList)),
+                (uint)sectionEndOffset);
+            uint id = parser.GetUnsigned();
+            if ((id & 1) == 0)
+                throw new BadImageFormatException("Entry-point payload does not contain a fixup list.");
+
+            int fixupOffset = (int)parser.Offset;
+            if ((id & 2) != 0)
+            {
+                int backReferenceOffset = (int)parser.Offset;
+                uint delta = parser.GetUnsigned();
+                if (delta > (uint)(backReferenceOffset - sectionOffset))
+                    throw new BadImageFormatException("Fixup-cell list back-reference points outside its containing section.");
+                fixupOffset = checked(backReferenceOffset - (int)delta);
+            }
+
+            return (FixupCellListImageOffset)fixupOffset;
+        }
+
+        private int ValidateFixupCellListSection(ReadyToRunSection section, string parameterName)
+            => section.Type switch
+            {
+                Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints => ValidateAndGetSectionOffset(
+                    section,
+                    Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints,
+                    parameterName),
+                Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints => ValidateAndGetSectionOffset(
+                    section,
+                    Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints,
+                    parameterName),
+                _ => throw new ArgumentException("Section must contain method entry points.", parameterName),
+            };
+
         private static void EnsureOffsetWithinRange(int offset, int startOffset, int endOffset)
         {
             if (offset < startOffset || offset >= endOffset)
@@ -291,60 +305,36 @@ namespace System.Reflection.Metadata.ReadyToRun
     }
 
     /// <summary>
-    /// Fully decoded payload for an <see cref="InstanceMethodEntry"/>:
-    /// the method reference, the runtime function index of its entry point,
-    /// and a handle to any fixup cell references.
+    /// Decoded InstanceMethodEntryPoints hashtable entry: the method reference, the runtime function
+    /// index of its entry point, and a handle to any fixup cell references.
     /// </summary>
-    public sealed class InstanceMethodPayload
+    /// <remarks>
+    /// <code>
+    /// method signature | DecodeUnsigned(id) | [DecodeUnsigned(back-reference delta)]
+    /// </code>
+    /// </remarks>
+    public sealed class InstanceMethodEntry
     {
-        /// <summary>Raw method signature parts decoded from the start of the entry payload.</summary>
+        /// <summary>Raw method signature parts decoded from the start of the entry.</summary>
         public R2RSignature MethodSignature { get; }
-        public RuntimeFunctionIndex EntryPointIndex { get; }
-        public FixupCellListHandle? FixupCellListHandle { get; }
 
-        internal InstanceMethodPayload(R2RSignature methodSignature, RuntimeFunctionIndex entryPointIndex, FixupCellListHandle? fixupCellListHandle)
+        /// <summary>Index into the RuntimeFunctions table.</summary>
+        public RuntimeFunctionIndex EntryPointIndex { get; }
+
+        /// <summary>
+        /// Handle to the encoded fixup-list reference, relative to the InstanceMethodEntryPoints section;
+        /// resolve with <see cref="ReadyToRunReader.GetFixupCells"/>.
+        /// </summary>
+        public FixupCellListHandle? FixupCellList { get; }
+
+        internal InstanceMethodEntry(
+            R2RSignature methodSignature,
+            RuntimeFunctionIndex entryPointIndex,
+            FixupCellListHandle? fixupCellList)
         {
             MethodSignature = methodSignature;
             EntryPointIndex = entryPointIndex;
-            FixupCellListHandle = fixupCellListHandle;
-        }
-    }
-
-    public readonly struct FixupCellListHandle
-    {
-        /// <summary>Offset of the encoded reference, relative to its entry-point section.</summary>
-        public FixupCellListOffset Offset { get; }
-
-        internal FixupCellListHandle(FixupCellListOffset offset) => Offset = offset;
-    }
-
-    /// <summary>
-    /// Opaque handle to the start of an <see cref="InstanceMethodEntry"/> payload
-    /// (a method signature blob immediately followed by entry-point and fixup data).
-    /// Pass with its <see cref="InstanceMethodEntryPointsTable"/> to
-    /// <see cref="ReadyToRunReader.GetInstanceMethodPayload(InstanceMethodEntryPointsTable, InstanceMethodEntry)"/> to decode.
-    /// The underlying value is the file offset (not RVA) of the payload start.
-    /// </summary>
-
-
-    /// <summary>
-    /// A single entry in the InstanceMethodEntryPoints hashtable.
-    /// Contains a handle to the signature blob for this generic method instantiation.
-    /// The signature must be decoded by a higher-level reader to extract the
-    /// runtime function index and fixup cells.
-    /// </summary>
-    public sealed class InstanceMethodEntry
-    {
-        /// <summary>Handle to the entry's payload (method signature blob followed by entry-point data).</summary>
-        public InstanceMethodPayloadOffset PayloadOffset { get; }
-
-        /// <summary>Low byte of the hash code used for hashtable bucketing.</summary>
-        public byte LowHashcode { get; }
-
-        internal InstanceMethodEntry(InstanceMethodPayloadOffset payloadOffset, byte lowHashcode)
-        {
-            PayloadOffset = payloadOffset;
-            LowHashcode = lowHashcode;
+            FixupCellList = fixupCellList;
         }
     }
 }

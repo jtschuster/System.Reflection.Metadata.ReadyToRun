@@ -3,7 +3,6 @@
 
 using System.Collections.Generic;
 
-
 namespace System.Reflection.Metadata.ReadyToRun
 {
     /// <summary>
@@ -12,19 +11,37 @@ namespace System.Reflection.Metadata.ReadyToRun
     /// that participate in that type map group.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// All values are compressed unsigned integers (<c>uint*</c>). An import reference is two
+    /// <c>uint*</c> values: import section index, then cell index.
+    /// </para>
+    /// <code>
+    /// TypeMapAssemblyTargets section
+    /// +-----------------------------------------------------------+
+    /// | NativeHashtable                                           |
+    /// |   key: version-resilient hash of the group type           |
+    /// |   each entry points at one record (below)                 |
+    /// +-----------------------------------------------------------+
+    ///
+    /// Record
+    /// +-----------------------------------------------------------+
+    /// | group type   import reference (section, cell)             |
+    /// | n            uint*  number of target modules              |
+    /// | n x          import reference (section, cell)             |
+    /// +-----------------------------------------------------------+
+    /// </code>
     /// Crossgen2 emitter: <c>TypeMapAssemblyTargetsNode</c>.
-    /// Each outer entry is encoded as a tuple of:
-    ///   (groupTypeRef: importSectionIdx, fixupIdx)
-    ///   (modules: VertexSequence → count + N * (importSectionIdx, fixupIdx))
     /// </remarks>
-    public sealed class TypeMapAssemblyTargetsTable
+    public readonly struct TypeMapAssemblyTargetsHashTableHandle
     {
-        /// <summary>All decoded entries from the section's NativeHashtable.</summary>
-        public IReadOnlyList<TypeMapAssemblyTargetsEntry> Entries { get; }
+        internal int Offset { get; }
 
-        internal TypeMapAssemblyTargetsTable(IReadOnlyList<TypeMapAssemblyTargetsEntry> entries)
+        internal int Size { get; }
+
+        internal TypeMapAssemblyTargetsHashTableHandle(int offset, int size)
         {
-            Entries = entries;
+            Offset = offset;
+            Size = size;
         }
     }
 
@@ -55,52 +72,66 @@ namespace System.Reflection.Metadata.ReadyToRun
     public partial class ReadyToRunReader
     {
         /// <summary>
-        /// Parses the TypeMapAssemblyTargets section as a NativeHashtable of group-to-module-list mappings.
+        /// Open the TypeMapAssemblyTargets section as a NativeHashtable handle without decoding any entries.
         /// </summary>
-        public TypeMapAssemblyTargetsTable GetTypeMapAssemblyTargetsTable(ReadyToRunSection section)
+        public TypeMapAssemblyTargetsHashTableHandle GetTypeMapAssemblyTargetsTable(ReadyToRunSection section)
         {
-            int sectionOffset = ValidateAndGetSectionOffset(
+            int sectionOffset = ValidateAndGetNativeHashtableSectionOffset(
                 section,
                 Internal.Runtime.ReadyToRunSectionType.TypeMapAssemblyTargets,
                 nameof(GetTypeMapAssemblyTargetsTable));
-            int sectionEndOffset = checked(sectionOffset + section.Size);
+            return new TypeMapAssemblyTargetsHashTableHandle(sectionOffset, section.Size);
+        }
 
-            NativeParser parser = new NativeParser(_nativeReader, (uint)sectionOffset);
-            NativeHashtable hashtable = new NativeHashtable(_nativeReader, parser, (uint)sectionEndOffset);
-            NativeHashtable.AllEntriesEnumerator enumerator = hashtable.EnumerateAllEntries();
+        /// <summary>Lazily enumerate every entry in the TypeMapAssemblyTargets hashtable.</summary>
+        public IEnumerable<TypeMapAssemblyTargetsEntryHandle> EnumerateTypeMapAssemblyTargetsEntries(TypeMapAssemblyTargetsHashTableHandle table)
+        {
+            foreach (uint entry in EnumerateNativeHashtableEntries(table.Offset, table.Size, nameof(table)))
+                yield return (TypeMapAssemblyTargetsEntryHandle)entry;
+        }
 
-            var entries = new List<TypeMapAssemblyTargetsEntry>();
-
-            NativeParser curParser = enumerator.GetNext();
-            while (!curParser.IsNull())
+        /// <summary>
+        /// Probe the bucket for <paramref name="versionResilientTypeHash"/> and return the first entry that satisfies
+        /// <paramref name="predicate"/>.
+        /// </summary>
+        public TypeMapAssemblyTargetsEntryHandle? LookupTypeMapAssemblyTargetsEntry(
+            TypeMapAssemblyTargetsHashTableHandle table,
+            int versionResilientTypeHash,
+            Func<TypeMapAssemblyTargetsEntry, bool> predicate)
+        {
+            ArgumentNullException.ThrowIfNull(predicate);
+            foreach (uint entry in LookupNativeHashtableEntries(table.Offset, table.Size, versionResilientTypeHash, nameof(table)))
             {
-                // Read the group type reference: (importSectionIndex, fixupIndex).
-                uint groupSectionIdx = curParser.GetUnsigned();
-                uint groupFixupIdx = curParser.GetUnsigned();
-                var groupRef = new ImportFixupReference((ImportSectionIndex)groupSectionIdx, (ImportCellIndex)groupFixupIdx);
-
-                uint moduleCount = curParser.GetUnsigned();
-                long remainingByteCount = sectionEndOffset - (long)curParser.Offset;
-                if (moduleCount > remainingByteCount / 2)
-                {
-                    throw new BadImageFormatException(
-                        "Type-map assembly target count exceeds its containing section.");
-                }
-
-                var moduleRefs = new List<ImportFixupReference>((int)moduleCount);
-
-                for (uint i = 0; i < moduleCount; i++)
-                {
-                    uint moduleSectionIdx = curParser.GetUnsigned();
-                    uint moduleFixupIdx = curParser.GetUnsigned();
-                    moduleRefs.Add(new ImportFixupReference((ImportSectionIndex)moduleSectionIdx, (ImportCellIndex)moduleFixupIdx));
-                }
-
-                entries.Add(new TypeMapAssemblyTargetsEntry(groupRef, moduleRefs));
-                curParser = enumerator.GetNext();
+                TypeMapAssemblyTargetsEntryHandle handle = (TypeMapAssemblyTargetsEntryHandle)entry;
+                if (predicate(GetTypeMapAssemblyTargetsEntry(table, handle)))
+                    return handle;
             }
 
-            return new TypeMapAssemblyTargetsTable(entries);
+            return null;
+        }
+
+        /// <summary>Decode one TypeMapAssemblyTargets entry.</summary>
+        public TypeMapAssemblyTargetsEntry GetTypeMapAssemblyTargetsEntry(TypeMapAssemblyTargetsHashTableHandle table, TypeMapAssemblyTargetsEntryHandle handle)
+        {
+            NativeParser curParser = OpenNativeHashtableEntry(table.Offset, table.Size, (uint)handle, nameof(table), out int sectionEndOffset);
+            uint groupSectionIdx = curParser.GetUnsigned();
+            uint groupFixupIdx = curParser.GetUnsigned();
+            var groupRef = new ImportFixupReference((ImportSectionIndex)groupSectionIdx, (ImportCellIndex)groupFixupIdx);
+
+            uint moduleCount = curParser.GetUnsigned();
+            long remainingByteCount = sectionEndOffset - (long)curParser.Offset;
+            if (moduleCount > remainingByteCount / 2)
+                throw new BadImageFormatException("Type-map assembly target count exceeds its containing section.");
+
+            var moduleRefs = new List<ImportFixupReference>((int)moduleCount);
+            for (uint i = 0; i < moduleCount; i++)
+            {
+                uint moduleSectionIdx = curParser.GetUnsigned();
+                uint moduleFixupIdx = curParser.GetUnsigned();
+                moduleRefs.Add(new ImportFixupReference((ImportSectionIndex)moduleSectionIdx, (ImportCellIndex)moduleFixupIdx));
+            }
+
+            return new TypeMapAssemblyTargetsEntry(groupRef, moduleRefs);
         }
     }
 }

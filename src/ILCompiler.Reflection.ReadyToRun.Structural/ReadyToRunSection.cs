@@ -36,5 +36,4 @@ namespace System.Reflection.Metadata.ReadyToRun
         public override string ToString()
             => $"{Type}: RVA 0x{(uint)RelativeVirtualAddress:X8}, Size {Size}";
     }
-
 }

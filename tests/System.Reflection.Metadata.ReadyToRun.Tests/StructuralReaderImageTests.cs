@@ -79,9 +79,9 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
         foreach (var item in scope.Reader.EnumerateMethodDefEntryPoints(table))
         {
             MethodDefEntry entry = item.Entry;
-            if (entry.FixupCellListHandle is FixupCellListHandle fixupCellList)
+            if (entry.FixupCellList is FixupCellListHandle fixupCellList)
             {
-                Assert.True((uint)fixupCellList.Offset < (uint)section.Size);
+                Assert.True((uint)fixupCellList < (uint)section.Size);
                 scope.Reader.GetFixupCells(section, fixupCellList);
             }
             count++;
@@ -90,18 +90,21 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     }
 
     [Fact]
-    public void AvailableTypes_GetEntityHandle_ResolvesAgainstMetadata()
+    public void AvailableTypes_TypeHandle_ResolvesAgainstMetadata()
     {
         using ReaderScope scope = _image.OpenReader();
-        AvailableTypesTable table = scope.Reader.GetAvailableTypesTable(Section(scope.Reader, ReadyToRunSectionType.AvailableTypes));
+        AvailableTypesHashTableHandle table = scope.Reader.GetAvailableTypesTable(Section(scope.Reader, ReadyToRunSectionType.AvailableTypes));
         MetadataReader metadata = scope.PEReader.GetMetadataReader();
+        List<AvailableTypeEntry> entries = scope.Reader.EnumerateAvailableTypeEntries(table)
+            .Select(handle => scope.Reader.GetAvailableTypeEntry(table, handle))
+            .ToList();
 
-        Assert.NotEmpty(table.Entries);
+        Assert.NotEmpty(entries);
 
         int typeDefCount = 0;
-        foreach (AvailableTypeEntry entry in table.Entries)
+        foreach (AvailableTypeEntry entry in entries)
         {
-            EntityHandle handle = entry.GetEntityHandle();
+            EntityHandle handle = entry.Type;
             Assert.False(handle.IsNil);
 
             if (entry.IsExportedType)
@@ -121,22 +124,76 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
         Assert.True(typeDefCount >= 1, "Expected at least one TypeDefinition-backed available type.");
     }
 
+    [Fact]
+    public void DebugInfo_TryGetOffsetAgreesWithEnumeration()
+    {
+        using ReaderScope scope = _image.OpenReader();
+        ReadyToRunSection section = Section(scope.Reader, ReadyToRunSectionType.DebugInfo);
+        DebugInfoTable table = scope.Reader.GetDebugInfoTable(section);
+        Dictionary<uint, DebugInfoOffset> enumerated = scope.Reader.EnumerateDebugInfoEntries(table)
+            .ToDictionary(entry => (uint)entry.RuntimeFunctionIndex, entry => entry.DebugInfoOffset);
+
+        Assert.NotEmpty(enumerated);
+        for (uint i = 0; i < (uint)table.EntryCount; i++)
+        {
+            bool found = scope.Reader.TryGetDebugInfoOffset(table, (RuntimeFunctionIndex)i, out DebugInfoOffset offset);
+            Assert.Equal(enumerated.ContainsKey(i), found);
+            if (found)
+            {
+                Assert.Equal(enumerated[i], offset);
+                Assert.True((uint)offset < (uint)section.Size);
+                scope.Reader.GetDebugInfo(table, offset);
+            }
+        }
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => scope.Reader.TryGetDebugInfoOffset(table, (RuntimeFunctionIndex)table.EntryCount, out _));
+    }
+
+    [Fact]
+    public void AvailableTypes_LookupByVersionResilientHash_FindsEachEntry()
+    {
+        using ReaderScope scope = _image.OpenReader();
+        AvailableTypesHashTableHandle table = scope.Reader.GetAvailableTypesTable(Section(scope.Reader, ReadyToRunSectionType.AvailableTypes));
+        MetadataReader metadata = scope.PEReader.GetMetadataReader();
+
+        int checkedCount = 0;
+        foreach (AvailableTypeEntryHandle handle in scope.Reader.EnumerateAvailableTypeEntries(table))
+        {
+            AvailableTypeEntry entry = scope.Reader.GetAvailableTypeEntry(table, handle);
+            if (entry.IsExportedType)
+                continue;
+
+            TypeDefinition typeDef = metadata.GetTypeDefinition((TypeDefinitionHandle)entry.Type);
+            if (!typeDef.GetDeclaringType().IsNil)
+                continue;
+
+            int hash = VersionResilientTypeHash(metadata.GetString(typeDef.Namespace), metadata.GetString(typeDef.Name));
+            AvailableTypeEntryHandle? found = scope.Reader.LookupAvailableTypeEntry(table, hash, candidate => candidate.Type == entry.Type);
+            Assert.Equal(handle, found);
+            Assert.Null(scope.Reader.LookupAvailableTypeEntry(table, hash, _ => false));
+            checkedCount++;
+        }
+
+        Assert.True(checkedCount >= 1, "Expected at least one top-level TypeDefinition-backed available type.");
+    }
+
     // ─── Tier C: InstanceMethodEntryPoints enumerate + lookup ─────────────────
 
     [Fact]
     public void InstanceMethodEntries_EnumerationIsStableAndUnique()
     {
         using ReaderScope scope = _image.OpenReader();
-        InstanceMethodEntryPointsTable table = scope.Reader.GetInstanceMethodEntryPointsTable(InstanceMethodSection(scope.Reader));
+        InstanceMethodHashTableHandle table = scope.Reader.GetInstanceMethodEntryPointsTable(InstanceMethodSection(scope.Reader));
 
-        (InstanceMethodPayloadOffset Offset, byte Low)[] first =
-            scope.Reader.EnumerateInstanceMethodEntries(table).Select(e => (e.PayloadOffset, e.LowHashcode)).ToArray();
-        (InstanceMethodPayloadOffset Offset, byte Low)[] second =
-            scope.Reader.EnumerateInstanceMethodEntries(table).Select(e => (e.PayloadOffset, e.LowHashcode)).ToArray();
+        (InstanceMethodEntryHandle Handle, byte Low)[] first =
+            scope.Reader.EnumerateInstanceMethodEntries(table).Select(e => (e.Handle, e.LowHashcode)).ToArray();
+        (InstanceMethodEntryHandle Handle, byte Low)[] second =
+            scope.Reader.EnumerateInstanceMethodEntries(table).Select(e => (e.Handle, e.LowHashcode)).ToArray();
 
         Assert.NotEmpty(first);
         Assert.Equal(first, second);
-        Assert.Equal(first.Length, first.Select(e => e.Offset).Distinct().Count());
+        Assert.Equal(first.Length, first.Select(e => e.Handle).Distinct().Count());
     }
 
     [Fact]
@@ -179,7 +236,7 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     {
         using ReaderScope scope = _image.OpenReader();
         ReadyToRunSection section = InstanceMethodSection(scope.Reader);
-        InstanceMethodEntryPointsTable table = scope.Reader.GetInstanceMethodEntryPointsTable(section);
+        InstanceMethodHashTableHandle table = scope.Reader.GetInstanceMethodEntryPointsTable(section);
 
         List<DecodedInstanceMethod> entries = DecodeAllInstanceMethods(scope.Reader);
 
@@ -199,15 +256,15 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
         byte low = target.LowHashcode;
 
         int successes = 0;
-        InstanceMethodPayload? found = null;
+        InstanceMethodEntry? found = null;
         for (uint bucket = 0; bucket <= bucketMask; bucket++)
         {
             int hash = (int)((bucket << 8) | low);
-            InstanceMethodPayload? payload = scope.Reader.LookupInstanceMethodEntryPoint(table, hash, sig => sig.ToString() == targetSig);
-            if (payload is not null)
+            InstanceMethodEntryHandle? handle = scope.Reader.LookupInstanceMethodEntry(table, hash, sig => sig.ToString() == targetSig);
+            if (handle is InstanceMethodEntryHandle foundHandle)
             {
                 successes++;
-                found = payload;
+                found = scope.Reader.GetInstanceMethodEntry(table, foundHandle);
             }
         }
 
@@ -224,7 +281,7 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     {
         using ReaderScope scope = _image.OpenReader();
         ReadyToRunSection section = InstanceMethodSection(scope.Reader);
-        InstanceMethodEntryPointsTable table = scope.Reader.GetInstanceMethodEntryPointsTable(section);
+        InstanceMethodHashTableHandle table = scope.Reader.GetInstanceMethodEntryPointsTable(section);
 
         List<DecodedInstanceMethod> entries = DecodeAllInstanceMethods(scope.Reader);
         HashSet<byte> presentLowBytes = entries.Select(e => e.LowHashcode).ToHashSet();
@@ -238,7 +295,7 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
             int hash = (int)((bucket << 8) | (uint)absent);
             // Even a predicate that accepts everything must see no candidate: the low byte filters
             // out every entry before the predicate is consulted.
-            Assert.Null(scope.Reader.LookupInstanceMethodEntryPoint(table, hash, _ => true));
+            Assert.Null(scope.Reader.LookupInstanceMethodEntry(table, hash, _ => true));
         }
     }
 
@@ -247,7 +304,7 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     {
         using ReaderScope scope = _image.OpenReader();
         ReadyToRunSection section = InstanceMethodSection(scope.Reader);
-        InstanceMethodEntryPointsTable table = scope.Reader.GetInstanceMethodEntryPointsTable(section);
+        InstanceMethodHashTableHandle table = scope.Reader.GetInstanceMethodEntryPointsTable(section);
 
         List<DecodedInstanceMethod> entries = DecodeAllInstanceMethods(scope.Reader);
         uint bucketMask = ReadBucketMask(scope.Reader, section);
@@ -258,14 +315,14 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
         for (uint bucket = 0; bucket <= bucketMask; bucket++)
         {
             int hash = (int)((bucket << 8) | low);
-            Assert.Null(scope.Reader.LookupInstanceMethodEntryPoint(table, hash, _ => false));
+            Assert.Null(scope.Reader.LookupInstanceMethodEntry(table, hash, _ => false));
         }
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────
 
     private sealed record DecodedInstanceMethod(
-        InstanceMethodEntry Entry,
+        InstanceMethodHashTableEntry Entry,
         byte LowHashcode,
         MethodSignature Signature,
         string SignatureString,
@@ -274,20 +331,48 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     private List<DecodedInstanceMethod> DecodeAllInstanceMethods(ReadyToRunReader reader)
     {
         ReadyToRunSection section = InstanceMethodSection(reader);
-        InstanceMethodEntryPointsTable table = reader.GetInstanceMethodEntryPointsTable(section);
+        InstanceMethodHashTableHandle table = reader.GetInstanceMethodEntryPointsTable(section);
         var result = new List<DecodedInstanceMethod>();
-        foreach (InstanceMethodEntry entry in reader.EnumerateInstanceMethodEntries(table))
+        foreach (InstanceMethodHashTableEntry entry in reader.EnumerateInstanceMethodEntries(table))
         {
-            InstanceMethodPayload payload = reader.GetInstanceMethodPayload(table, entry);
-            if (payload.FixupCellListHandle is FixupCellListHandle fixupCellList)
+            InstanceMethodEntry payload = reader.GetInstanceMethodEntry(table, entry.Handle);
+            if (payload.FixupCellList is FixupCellListHandle fixupCellList)
             {
-                Assert.True((uint)fixupCellList.Offset < (uint)section.Size);
+                Assert.True((uint)fixupCellList < (uint)section.Size);
+                uint sectionImageOffset = (uint)reader.GetOffsetForRVA(section.RelativeVirtualAddress);
+                uint fixupImageOffset = (uint)reader.GetFixupCellListImageOffset(section, fixupCellList);
+                Assert.InRange(fixupImageOffset, sectionImageOffset, sectionImageOffset + (uint)section.Size - 1);
                 reader.GetFixupCells(section, fixupCellList);
             }
             MethodSignature signature = MethodSignature.FromSignature(payload.MethodSignature);
             result.Add(new DecodedInstanceMethod(entry, entry.LowHashcode, signature, signature.ToString(), (int)payload.EntryPointIndex));
         }
         return result;
+    }
+
+    // Mirrors CoreCLR ComputeNameHashCode(namespace, name) from vm/typehashingalgorithms.h.
+    private static int VersionResilientTypeHash(string @namespace, string name)
+        => NameHash(System.Text.Encoding.UTF8.GetBytes(@namespace)) ^ NameHash(System.Text.Encoding.UTF8.GetBytes(name));
+
+    private static int NameHash(byte[] src)
+    {
+        if (src.Length == 0)
+            return 0;
+
+        int hash1 = 0x6DA3B944;
+        int hash2 = 0;
+        for (int i = 0; i < src.Length; i += 2)
+        {
+            hash1 = unchecked(hash1 + RotateLeft(hash1, 5)) ^ (sbyte)src[i];
+            if (i + 1 < src.Length)
+                hash2 = unchecked(hash2 + RotateLeft(hash2, 5)) ^ (sbyte)src[i + 1];
+        }
+
+        hash1 = unchecked(hash1 + RotateLeft(hash1, 8));
+        hash2 = unchecked(hash2 + RotateLeft(hash2, 8));
+        return hash1 ^ hash2;
+
+        static int RotateLeft(int value, int bitCount) => (int)System.Numerics.BitOperations.RotateLeft((uint)value, bitCount);
     }
 
     private static ReadyToRunSection InstanceMethodSection(ReadyToRunReader reader)

@@ -130,7 +130,7 @@ internal sealed class MethodInventory
             string name = SafeFormatMethodDef(mdReader, rowId);
             bool isAsync = TryDetectAsyncAttribute(mdReader, rowId);
 
-            var fixups = ResolveFixupCells(reader, section, entry.FixupCellListHandle, importSections);
+            var fixups = ResolveFixupCells(reader, section, entry.FixupCellList, importSections);
 
             output.Add(new MethodInventoryEntry
             {
@@ -205,14 +205,14 @@ internal sealed class MethodInventory
         IReadOnlyList<ImportSectionSignatures> importSections,
         List<MethodInventoryEntry> output)
     {
-        InstanceMethodEntryPointsTable table = reader.GetInstanceMethodEntryPointsTable(section);
+        InstanceMethodHashTableHandle table = reader.GetInstanceMethodEntryPointsTable(section);
 
-        foreach (InstanceMethodEntry entry in reader.EnumerateInstanceMethodEntries(table))
+        foreach (InstanceMethodHashTableEntry entry in reader.EnumerateInstanceMethodEntries(table))
         {
-            InstanceMethodPayload payload;
+            InstanceMethodEntry payload;
             try
             {
-                payload = reader.GetInstanceMethodPayload(table, entry);
+                payload = reader.GetInstanceMethodEntry(table, entry.Handle);
             }
             catch
             {
@@ -224,7 +224,7 @@ internal sealed class MethodInventory
             string name = FormatMethodFromSignature(methodSig, resolver);
             bool isAsync = methodSig.Flags.HasFlag(ReadyToRunMethodSigFlags.READYTORUN_METHOD_SIG_AsyncVariant);
 
-            var fixups = ResolveFixupCells(reader, section, payload.FixupCellListHandle, importSections);
+            var fixups = ResolveFixupCells(reader, section, payload.FixupCellList, importSections);
 
             output.Add(new MethodInventoryEntry
             {

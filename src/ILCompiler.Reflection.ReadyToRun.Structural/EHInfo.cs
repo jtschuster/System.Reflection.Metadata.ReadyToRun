@@ -75,7 +75,10 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// so the caller must supply the byte length of the EH info region for this entry.
         /// </summary>
         /// <param name="handle">Handle pointing to the EH info RVA.</param>
-        /// <param name="ehInfoByteLength">Byte length of the EH info region (distance to next entry or section end).</param>
+        /// <param name="ehInfoByteLength">
+        /// Byte length of the EH info region, derived from the next entry's EH info RVA.
+        /// For the final method, use the terminal sentinel in <see cref="ExceptionInfoTable.Entries"/>.
+        /// </param>
         public EHInfo GetEHInfo(EHInfoRva handle, int ehInfoByteLength)
         {
             EnsureSemanticDecodingSupported(nameof(GetEHInfo));

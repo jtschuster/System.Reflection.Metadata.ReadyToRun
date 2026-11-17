@@ -115,7 +115,7 @@ public readonly record struct UnwindInfoRva
     public override string ToString() => $"{nameof(UnwindInfoRva)} {{ Value = {_value} }}";
 }
 
-/// <summary>Image offset of debug information.</summary>
+/// <summary>Offset of an encoded NativeArray debug-info handle, relative to its DebugInfo section.</summary>
 public readonly record struct DebugInfoOffset
 {
     private readonly uint _value;
@@ -199,40 +199,73 @@ public readonly record struct InlinerListOffset
     public override string ToString() => $"{nameof(InlinerListOffset)} {{ Value = {_value} }}";
 }
 
-/// <summary>Image offset of an instance-method entry payload.</summary>
-public readonly record struct InstanceMethodPayloadOffset
+/// <summary>Offset of an InstanceMethodEntryPoints hashtable entry (its method signature), relative to the start of the hashtable.</summary>
+public readonly record struct InstanceMethodEntryHandle
 {
     private readonly uint _value;
-    public InstanceMethodPayloadOffset(uint Value) => _value = Value;
-    public static explicit operator InstanceMethodPayloadOffset(uint value) => new(value);
-    public static explicit operator InstanceMethodPayloadOffset(int value) => new(unchecked((uint)value));
-    public static explicit operator uint(InstanceMethodPayloadOffset value) => value._value;
-    public static explicit operator int(InstanceMethodPayloadOffset value) => unchecked((int)value._value);
-    public override string ToString() => $"{nameof(InstanceMethodPayloadOffset)} {{ Value = {_value} }}";
+    public InstanceMethodEntryHandle(uint Value) => _value = Value;
+    public static explicit operator InstanceMethodEntryHandle(uint value) => new(value);
+    public static explicit operator InstanceMethodEntryHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(InstanceMethodEntryHandle value) => value._value;
+    public static explicit operator int(InstanceMethodEntryHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(InstanceMethodEntryHandle)} {{ Value = {_value} }}";
 }
 
-/// <summary>Offset of an encoded fixup-list reference, relative to its entry-point section.</summary>
-public readonly record struct FixupCellListOffset
+/// <summary>
+/// Handle to an encoded fixup-list reference: the offset of the entry's encoded ID, relative to the start
+/// of its MethodDefEntryPoints or InstanceMethodEntryPoints section.
+/// </summary>
+/// <remarks>
+/// <code>
+/// encoded id (bit 0 = has fixups, bit 1 = back-reference)
+/// [optional unsigned delta; list starts at delta bytes before this field]
+/// </code>
+/// </remarks>
+public readonly record struct FixupCellListHandle
 {
     private readonly uint _value;
-    public FixupCellListOffset(uint Value) => _value = Value;
-    public static explicit operator FixupCellListOffset(uint value) => new(value);
-    public static explicit operator FixupCellListOffset(int value) => new(unchecked((uint)value));
-    public static explicit operator uint(FixupCellListOffset value) => value._value;
-    public static explicit operator int(FixupCellListOffset value) => unchecked((int)value._value);
-    public override string ToString() => $"{nameof(FixupCellListOffset)} {{ Value = {_value} }}";
+    public FixupCellListHandle(uint Value) => _value = Value;
+    public static explicit operator FixupCellListHandle(uint value) => new(value);
+    public static explicit operator FixupCellListHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(FixupCellListHandle value) => value._value;
+    public static explicit operator int(FixupCellListHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(FixupCellListHandle)} {{ Value = {_value} }}";
 }
 
-/// <summary>Image offset of a PGO payload.</summary>
-public readonly record struct PgoPayloadOffset
+/// <summary>Image offset of resolved nibble-encoded fixup-list data.</summary>
+public readonly record struct FixupCellListImageOffset
 {
     private readonly uint _value;
-    public PgoPayloadOffset(uint Value) => _value = Value;
-    public static explicit operator PgoPayloadOffset(uint value) => new(value);
-    public static explicit operator PgoPayloadOffset(int value) => new(unchecked((uint)value));
-    public static explicit operator uint(PgoPayloadOffset value) => value._value;
-    public static explicit operator int(PgoPayloadOffset value) => unchecked((int)value._value);
-    public override string ToString() => $"{nameof(PgoPayloadOffset)} {{ Value = {_value} }}";
+    public FixupCellListImageOffset(uint Value) => _value = Value;
+    public static explicit operator FixupCellListImageOffset(uint value) => new(value);
+    public static explicit operator FixupCellListImageOffset(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(FixupCellListImageOffset value) => value._value;
+    public static explicit operator int(FixupCellListImageOffset value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(FixupCellListImageOffset)} {{ Value = {_value} }}";
+}
+
+/// <summary>Offset of a PGO hashtable entry (its method signature), relative to the start of the PgoInstrumentationData hashtable.</summary>
+public readonly record struct PgoEntryHandle
+{
+    private readonly uint _value;
+    public PgoEntryHandle(uint Value) => _value = Value;
+    public static explicit operator PgoEntryHandle(uint value) => new(value);
+    public static explicit operator PgoEntryHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(PgoEntryHandle value) => value._value;
+    public static explicit operator int(PgoEntryHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(PgoEntryHandle)} {{ Value = {_value} }}";
+}
+
+/// <summary>Image (file) offset of the start of a PGO data blob.</summary>
+public readonly record struct PgoDataBlobImageOffset
+{
+    private readonly uint _value;
+    public PgoDataBlobImageOffset(uint Value) => _value = Value;
+    public static explicit operator PgoDataBlobImageOffset(uint value) => new(value);
+    public static explicit operator PgoDataBlobImageOffset(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(PgoDataBlobImageOffset value) => value._value;
+    public static explicit operator int(PgoDataBlobImageOffset value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(PgoDataBlobImageOffset)} {{ Value = {_value} }}";
 }
 
 /// <summary>Encoded backward-reference delta to a deduplicated PGO data blob.</summary>
@@ -305,4 +338,88 @@ public readonly record struct ImportCellIndex
     public static explicit operator uint(ImportCellIndex value) => value._value;
     public static explicit operator int(ImportCellIndex value) => unchecked((int)value._value);
     public override string ToString() => $"{nameof(ImportCellIndex)} {{ Value = {_value} }}";
+}
+
+/// <summary>Index of a module in the image's manifest/component module list; resolved by the runtime with <c>Module::GetModuleFromIndexIfLoaded</c>. 0 is the owner module.</summary>
+public readonly record struct ModuleIndex
+{
+    private readonly uint _value;
+    public ModuleIndex(uint Value) => _value = Value;
+    public static explicit operator ModuleIndex(uint value) => new(value);
+    public static explicit operator ModuleIndex(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(ModuleIndex value) => value._value;
+    public static explicit operator int(ModuleIndex value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(ModuleIndex)} {{ Value = {_value} }}";
+}
+
+/// <summary>Offset of a AvailableTypes hashtable entry, relative to the start of the hashtable (its section).</summary>
+public readonly record struct AvailableTypeEntryHandle
+{
+    private readonly uint _value;
+    public AvailableTypeEntryHandle(uint Value) => _value = Value;
+    public static explicit operator AvailableTypeEntryHandle(uint value) => new(value);
+    public static explicit operator AvailableTypeEntryHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(AvailableTypeEntryHandle value) => value._value;
+    public static explicit operator int(AvailableTypeEntryHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(AvailableTypeEntryHandle)} {{ Value = {_value} }}";
+}
+
+/// <summary>Offset of a InliningInfo2 hashtable entry, relative to the start of the hashtable (its section).</summary>
+public readonly record struct InliningInfo2EntryHandle
+{
+    private readonly uint _value;
+    public InliningInfo2EntryHandle(uint Value) => _value = Value;
+    public static explicit operator InliningInfo2EntryHandle(uint value) => new(value);
+    public static explicit operator InliningInfo2EntryHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(InliningInfo2EntryHandle value) => value._value;
+    public static explicit operator int(InliningInfo2EntryHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(InliningInfo2EntryHandle)} {{ Value = {_value} }}";
+}
+
+/// <summary>Offset of a CrossModuleInlineInfo hashtable entry, relative to the start of the hashtable (its section).</summary>
+public readonly record struct CrossModuleInlineEntryHandle
+{
+    private readonly uint _value;
+    public CrossModuleInlineEntryHandle(uint Value) => _value = Value;
+    public static explicit operator CrossModuleInlineEntryHandle(uint value) => new(value);
+    public static explicit operator CrossModuleInlineEntryHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(CrossModuleInlineEntryHandle value) => value._value;
+    public static explicit operator int(CrossModuleInlineEntryHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(CrossModuleInlineEntryHandle)} {{ Value = {_value} }}";
+}
+
+/// <summary>Offset of a ExternalTypeMaps outer hashtable entry, relative to the start of the hashtable (its section).</summary>
+public readonly record struct ExternalTypeMapGroupHandle
+{
+    private readonly uint _value;
+    public ExternalTypeMapGroupHandle(uint Value) => _value = Value;
+    public static explicit operator ExternalTypeMapGroupHandle(uint value) => new(value);
+    public static explicit operator ExternalTypeMapGroupHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(ExternalTypeMapGroupHandle value) => value._value;
+    public static explicit operator int(ExternalTypeMapGroupHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(ExternalTypeMapGroupHandle)} {{ Value = {_value} }}";
+}
+
+/// <summary>Offset of a ProxyTypeMaps outer hashtable entry, relative to the start of the hashtable (its section).</summary>
+public readonly record struct ProxyTypeMapGroupHandle
+{
+    private readonly uint _value;
+    public ProxyTypeMapGroupHandle(uint Value) => _value = Value;
+    public static explicit operator ProxyTypeMapGroupHandle(uint value) => new(value);
+    public static explicit operator ProxyTypeMapGroupHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(ProxyTypeMapGroupHandle value) => value._value;
+    public static explicit operator int(ProxyTypeMapGroupHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(ProxyTypeMapGroupHandle)} {{ Value = {_value} }}";
+}
+
+/// <summary>Offset of a TypeMapAssemblyTargets hashtable entry, relative to the start of the hashtable (its section).</summary>
+public readonly record struct TypeMapAssemblyTargetsEntryHandle
+{
+    private readonly uint _value;
+    public TypeMapAssemblyTargetsEntryHandle(uint Value) => _value = Value;
+    public static explicit operator TypeMapAssemblyTargetsEntryHandle(uint value) => new(value);
+    public static explicit operator TypeMapAssemblyTargetsEntryHandle(int value) => new(unchecked((uint)value));
+    public static explicit operator uint(TypeMapAssemblyTargetsEntryHandle value) => value._value;
+    public static explicit operator int(TypeMapAssemblyTargetsEntryHandle value) => unchecked((int)value._value);
+    public override string ToString() => $"{nameof(TypeMapAssemblyTargetsEntryHandle)} {{ Value = {_value} }}";
 }
