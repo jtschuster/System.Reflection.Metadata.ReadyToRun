@@ -121,10 +121,10 @@ internal sealed class MethodInventory
         IReadOnlyList<ImportSectionSignatures> importSections,
         List<MethodInventoryEntry> output)
     {
-        MethodDefEntryPointsTable table = reader.GetMethodDefEntryPointsTable(section);
+        MethodDefEntryPointsNativeArrayHandle handle = reader.GetMethodDefEntryPointsTable(section);
         MetadataReader mdReader = resolver.GetMetadataReader(moduleIndex);
 
-        foreach ((MethodRid methodRid, MethodDefEntry entry) in reader.EnumerateMethodDefEntryPoints(table))
+        foreach ((MethodRid methodRid, MethodDefEntry entry) in reader.EnumerateMethodDefEntryPoints(handle))
         {
             int rowId = (int)methodRid;
             string name = SafeFormatMethodDef(mdReader, rowId);

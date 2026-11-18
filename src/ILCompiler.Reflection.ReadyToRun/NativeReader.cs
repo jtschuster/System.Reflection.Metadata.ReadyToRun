@@ -195,59 +195,73 @@ namespace System.Reflection.Metadata.ReadyToRun
         /// based on <a href="https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/nativeformatreader.h">src\vm\nativeformatreader.h</a> DecodeUnsigned
         /// </summary>
         public uint DecodeUnsigned(uint offset, ref uint pValue)
+            => DecodeUnsigned(
+                offset,
+                _backingStream.Length > uint.MaxValue ? uint.MaxValue : (uint)_backingStream.Length,
+                ref pValue);
+
+        internal uint DecodeUnsigned(uint offset, uint endOffset, ref uint pValue)
         {
-            if (offset >= _backingStream.Length)
+            if (offset >= endOffset || endOffset > _backingStream.Length)
                 throw new System.BadImageFormatException("offset out of bounds");
 
             int off = (int)offset;
             uint val = ReadByte(ref off);
+            uint encodedLength;
 
             if ((val & 1) == 0)
             {
+                encodedLength = 1;
                 pValue = (val >> 1);
-                offset += 1;
             }
             else if ((val & 2) == 0)
             {
-                if (offset + 1 >= _backingStream.Length)
-                    throw new System.BadImageFormatException("offset out of bounds");
-
-                pValue = (val >> 2) |
-                        ((uint)ReadByte(ref off) << 6);
-                offset += 2;
+                encodedLength = 2;
             }
             else if ((val & 4) == 0)
             {
-                if (offset + 2 >= _backingStream.Length)
-                    throw new System.BadImageFormatException("offset out of bounds");
-
-                pValue = (val >> 3) |
-                        ((uint)ReadByte(ref off) << 5) |
-                        ((uint)ReadByte(ref off) << 13);
-                offset += 3;
+                encodedLength = 3;
             }
             else if ((val & 8) == 0)
             {
-                if (offset + 3 >= _backingStream.Length)
-                    throw new System.BadImageFormatException("offset out of bounds");
-
-                pValue = (val >> 4) |
-                        ((uint)ReadByte(ref off) << 4) |
-                        ((uint)ReadByte(ref off) << 12) |
-                        ((uint)ReadByte(ref off) << 20);
-                offset += 4;
+                encodedLength = 4;
             }
             else if ((val & 16) == 0)
             {
-                pValue = ReadUInt32(ref off);
-                offset += 5;
+                encodedLength = 5;
             }
             else
             {
                 throw new System.BadImageFormatException("DecodeUnsigned");
             }
 
-            return offset;
+            if (encodedLength > endOffset - offset)
+                throw new System.BadImageFormatException("offset out of bounds");
+
+            if (encodedLength == 2)
+            {
+                pValue = (val >> 2) |
+                    ((uint)ReadByte(ref off) << 6);
+            }
+            else if (encodedLength == 3)
+            {
+                pValue = (val >> 3) |
+                    ((uint)ReadByte(ref off) << 5) |
+                    ((uint)ReadByte(ref off) << 13);
+            }
+            else if (encodedLength == 4)
+            {
+                pValue = (val >> 4) |
+                    ((uint)ReadByte(ref off) << 4) |
+                    ((uint)ReadByte(ref off) << 12) |
+                    ((uint)ReadByte(ref off) << 20);
+            }
+            else if (encodedLength == 5)
+            {
+                pValue = ReadUInt32(ref off);
+            }
+
+            return offset + encodedLength;
         }
 
         // <summary>

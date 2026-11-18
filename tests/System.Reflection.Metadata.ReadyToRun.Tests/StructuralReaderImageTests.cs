@@ -73,10 +73,10 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     {
         using ReaderScope scope = _image.OpenReader();
         ReadyToRunSection section = Section(scope.Reader, ReadyToRunSectionType.MethodDefEntryPoints);
-        MethodDefEntryPointsTable table = scope.Reader.GetMethodDefEntryPointsTable(section);
+        MethodDefEntryPointsNativeArrayHandle handle = scope.Reader.GetMethodDefEntryPointsTable(section);
 
         int count = 0;
-        foreach (var item in scope.Reader.EnumerateMethodDefEntryPoints(table))
+        foreach (var item in scope.Reader.EnumerateMethodDefEntryPoints(handle))
         {
             MethodDefEntry entry = item.Entry;
             if (entry.FixupCellList is FixupCellListHandle fixupCellList)

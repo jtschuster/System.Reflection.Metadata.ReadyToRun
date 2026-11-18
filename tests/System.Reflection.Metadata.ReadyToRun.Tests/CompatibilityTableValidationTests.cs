@@ -276,6 +276,92 @@ public sealed class CompatibilityTableValidationTests
     }
 
     [Fact]
+    public void MethodDefEntryPoints_NativeArrayMetadataCannotExtendIntoNextSection()
+    {
+        using ReadyToRunReader reader = CreateReader(
+            24,
+            0,
+            [
+                new WebcilImageBuilder.R2RSectionSpec(ReadyToRunSectionType.MethodDefEntryPoints, [0x08]),
+                new WebcilImageBuilder.R2RSectionSpec(ReadyToRunSectionType.DelayLoadMethodCallThunks, [0]),
+            ]);
+        ReadyToRunSection section = reader.GetSections().Single(
+            section => section.Type == ReadyToRunSectionType.MethodDefEntryPoints);
+
+        Assert.Throws<BadImageFormatException>(() => reader.GetMethodDefEntryPointsTable(section));
+    }
+
+    [Fact]
+    public void MethodDefEntryPoints_PayloadCannotStartInNextSection()
+    {
+        using ReadyToRunReader reader = CreateReader(
+            24,
+            0,
+            [
+                new WebcilImageBuilder.R2RSectionSpec(
+                    ReadyToRunSectionType.MethodDefEntryPoints,
+                    [0x08, 0]),
+                new WebcilImageBuilder.R2RSectionSpec(ReadyToRunSectionType.DelayLoadMethodCallThunks, [0]),
+            ]);
+        ReadyToRunSection section = reader.GetSections().Single(
+            section => section.Type == ReadyToRunSectionType.MethodDefEntryPoints);
+        MethodDefEntryPointsNativeArrayHandle handle = reader.GetMethodDefEntryPointsTable(section);
+
+        Assert.Throws<BadImageFormatException>(
+            () => reader.TryGetMethodDefEntryPoint(handle, (MethodRid)1, out _));
+        Assert.Throws<BadImageFormatException>(
+            () => reader.EnumerateMethodDefEntryPoints(handle).ToList());
+    }
+
+    [Fact]
+    public void MethodDefEntryPoints_EncodedIdCannotContinueIntoNextSection()
+    {
+        using ReadyToRunReader reader = CreateReader(
+            24,
+            0,
+            [
+                new WebcilImageBuilder.R2RSectionSpec(
+                    ReadyToRunSectionType.MethodDefEntryPoints,
+                    [0x08, 0, 0x01]),
+                new WebcilImageBuilder.R2RSectionSpec(ReadyToRunSectionType.DelayLoadMethodCallThunks, [1]),
+            ]);
+        ReadyToRunSection section = reader.GetSections().Single(
+            section => section.Type == ReadyToRunSectionType.MethodDefEntryPoints);
+        MethodDefEntryPointsNativeArrayHandle handle = reader.GetMethodDefEntryPointsTable(section);
+
+        Assert.Throws<BadImageFormatException>(
+            () => reader.TryGetMethodDefEntryPoint(handle, (MethodRid)1, out _));
+        Assert.Throws<BadImageFormatException>(
+            () => reader.EnumerateMethodDefEntryPoints(handle).ToList());
+    }
+
+    [Fact]
+    public void MethodDefEntryPoints_ExposesRawRuntimeFunctionIdAndFlags()
+    {
+        // NativeArray with one entry. The payload ID is 13: fixups present, inline
+        // fixup cells, and RuntimeFunctions index 3.
+        byte[] content = [0x08, 0, 0x1A, 0x21, 0];
+        using ReadyToRunReader reader = CreateReader(
+            24,
+            0,
+            ReadyToRunSectionType.MethodDefEntryPoints,
+            content);
+        ReadyToRunSection section = Assert.Single(reader.GetSections());
+        MethodDefEntryPointsNativeArrayHandle handle = reader.GetMethodDefEntryPointsTable(section);
+        Assert.Equal(1, handle.Count);
+
+        Assert.True(reader.TryGetMethodDefEntryPoint(handle, (MethodRid)1, out MethodDefEntry entry));
+        Assert.Equal(13u, entry.RawRuntimeFunctionIdAndFlags);
+        Assert.Equal((RuntimeFunctionIndex)3, entry.EntryPointIndex);
+
+        FixupCellListHandle fixupCells = entry.FixupCellList!.Value;
+        Assert.Equal((FixupCellListHandle)2, fixupCells);
+        FixupCellRef fixupCell = Assert.Single(reader.GetFixupCells(section, fixupCells));
+        Assert.Equal((ImportSectionIndex)1, fixupCell.TableIndex);
+        Assert.Equal((ImportCellIndex)2, fixupCell.CellIndex);
+    }
+
+    [Fact]
     public void SignatureTableCache_IncludesEntryCount()
     {
         byte[] signatures = new byte[2 * sizeof(int)];
@@ -514,11 +600,22 @@ public sealed class CompatibilityTableValidationTests
         ReadyToRunSectionType sectionType,
         byte[] content,
         ReadyToRunValidationMode validationMode = ReadyToRunValidationMode.Tolerant)
+        => CreateReader(
+            majorVersion,
+            minorVersion,
+            [new WebcilImageBuilder.R2RSectionSpec(sectionType, content)],
+            validationMode);
+
+    private static ReadyToRunReader CreateReader(
+        ushort majorVersion,
+        ushort minorVersion,
+        IReadOnlyList<WebcilImageBuilder.R2RSectionSpec> sections,
+        ReadyToRunValidationMode validationMode = ReadyToRunValidationMode.Tolerant)
     {
         byte[] image = WebcilImageBuilder.BuildRawWebcil(
             majorVersion,
             minorVersion,
-            [new WebcilImageBuilder.R2RSectionSpec(sectionType, content)]);
+            sections);
         return new ReadyToRunReader(
             new WebcilImageReader(image),
             new NativeReader(new MemoryStream(image)),
