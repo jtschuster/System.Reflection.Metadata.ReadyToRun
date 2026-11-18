@@ -19,7 +19,9 @@ public sealed class CurrentFormatTests
         using var reader = new ReadyToRunReader(new PEImageReader(pe), new NativeReader(File.OpenRead(path), leaveOpen: false),
             path, new ReadyToRunReaderOptions(ReadyToRunValidationMode.Strict));
         Assert.Equal((ushort)34, reader.GetHeader().MajorVersion);
-        ReadyToRunSection imports = Assert.Single(reader.GetSections(), section => section.Type == ReadyToRunSectionType.ImportSections);
+        ReadyToRunSection imports = Assert.Single(
+            reader.GetSections(),
+            section => section is KnownReadyToRunSection { Type: ReadyToRunSectionType.ImportSections });
         int decoded = 0;
         foreach (var entry in reader.GetImportSectionsTableSection(imports).Entries)
         {

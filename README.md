@@ -10,11 +10,17 @@ It exposes the ReadyToRun data close to the encoded structure and order used in 
 
 ## Build
 
-Install a .NET 11 SDK, then run:
+Install the .NET 11 SDK pinned in `global.json` (for example, with `dotnetup`), then run:
 
 ```bash
+dotnetup install 11.0.100
 dotnet build RawR2RReader.slnx
 ```
+
+The stable .NET 11 SDK supplies C# 15, including the union language features used by
+`ReadyToRunSection`; no preview language version or .NET 12 target is required. The reader retains
+its existing 31-bit image-offset and section-length constraint because its underlying file offsets
+are represented as `int`. Valid directory values remain available through the raw section fields.
 
 ## Test
 

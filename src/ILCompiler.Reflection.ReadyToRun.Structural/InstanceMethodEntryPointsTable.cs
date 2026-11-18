@@ -284,13 +284,13 @@ namespace System.Reflection.Metadata.ReadyToRun
         }
 
         private int ValidateFixupCellListSection(ReadyToRunSection section, string parameterName)
-            => section.Type switch
+            => section switch
             {
-                Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints => ValidateAndGetSectionOffset(
+                KnownReadyToRunSection { Type: Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints } => ValidateAndGetSectionOffset(
                     section,
                     Internal.Runtime.ReadyToRunSectionType.MethodDefEntryPoints,
                     parameterName),
-                Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints => ValidateAndGetSectionOffset(
+                KnownReadyToRunSection { Type: Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints } => ValidateAndGetSectionOffset(
                     section,
                     Internal.Runtime.ReadyToRunSectionType.InstanceMethodEntryPoints,
                     parameterName),

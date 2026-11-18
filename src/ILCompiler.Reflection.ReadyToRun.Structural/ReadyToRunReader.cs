@@ -284,12 +284,12 @@ namespace System.Reflection.Metadata.ReadyToRun
             catch (ArgumentOutOfRangeException exception)
             {
                 throw new BadImageFormatException(
-                    $"ReadyToRun section {(int)section.Type} extends outside the image.", exception);
+                    $"ReadyToRun section {section.RawType} extends outside the image.", exception);
             }
             catch (EndOfStreamException exception)
             {
                 throw new BadImageFormatException(
-                    $"ReadyToRun section {(int)section.Type} is truncated.", exception);
+                    $"ReadyToRun section {section.RawType} is truncated.", exception);
             }
             return bytes;
         }
@@ -297,7 +297,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         internal int ValidateAndGetSectionOffset(ReadyToRunSection section)
         {
             if (section.Size < 0)
-                throw new BadImageFormatException($"ReadyToRun section {(int)section.Type} has a negative size.");
+                throw new BadImageFormatException($"ReadyToRun section {section.RawType} has a negative size.");
 
             if (section.Size == 0)
                 return 0;
@@ -314,7 +314,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             catch (OverflowException exception)
             {
                 throw new BadImageFormatException(
-                    $"ReadyToRun section {(int)section.Type} RVA and size overflow.", exception);
+                    $"ReadyToRun section {section.RawType} RVA and size overflow.", exception);
             }
 
             if (lastRva > int.MaxValue)
@@ -326,13 +326,13 @@ namespace System.Reflection.Metadata.ReadyToRun
             if (expectedEndOffset >= int.MaxValue)
             {
                 throw new NotSupportedException(
-                    $"ReadyToRun section {(int)section.Type} exceeds the reader's file-offset range.");
+                    $"ReadyToRun section {section.RawType} exceeds the reader's file-offset range.");
             }
 
             if (endOffset != expectedEndOffset || startOffset < 0 || expectedEndOffset >= _nativeReader.Length)
             {
                 throw new BadImageFormatException(
-                    $"ReadyToRun section {(int)section.Type} does not map to a contiguous in-image byte range.");
+                    $"ReadyToRun section {section.RawType} does not map to a contiguous in-image byte range.");
             }
 
             return startOffset;
@@ -344,7 +344,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             string operation)
         {
             EnsureSemanticDecodingSupported(operation);
-            if (section.Type != expectedType)
+            if (section is not KnownReadyToRunSection { Type: var sectionType } || sectionType != expectedType)
             {
                 throw new ArgumentException(
                     $"{operation} requires a {expectedType} section.",
@@ -424,7 +424,7 @@ namespace System.Reflection.Metadata.ReadyToRun
             string operation,
             bool nullTerminated)
         {
-            if (section.Type != expectedType)
+            if (section is not KnownReadyToRunSection { Type: var sectionType } || sectionType != expectedType)
                 throw new ArgumentException($"{operation} requires a {expectedType} section.", nameof(section));
 
             byte[] bytes = GetSectionBytes(section);

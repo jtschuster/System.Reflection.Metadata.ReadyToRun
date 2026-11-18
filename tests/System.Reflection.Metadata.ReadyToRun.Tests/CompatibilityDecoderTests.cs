@@ -169,10 +169,10 @@ public sealed class CompatibilityDecoderTests
     {
         byte[] image = CreateDebugInfoImage(majorVersion: 17, minorVersion: 0, [0x00]);
         using ReadyToRunReader reader = CreateReader(Machine.Amd64, image);
-        var section = new ReadyToRunSection(
+        var section = new ReadyToRunSection(new KnownReadyToRunSection(
             ReadyToRunSectionType.DebugInfo,
             (ImageRVA)(uint)DebugInfoEntryOffset,
-            size: 1);
+            size: 1));
 
         Assert.Throws<BadImageFormatException>(
             () => reader.GetDebugInfo(SyntheticDebugInfoTable(reader, section), (DebugInfoOffset)0));
@@ -263,10 +263,10 @@ public sealed class CompatibilityDecoderTests
 
     private static DebugInfo GetDebugInfo(ReadyToRunReader reader)
     {
-        var section = new ReadyToRunSection(
+        var section = new ReadyToRunSection(new KnownReadyToRunSection(
             ReadyToRunSectionType.DebugInfo,
             (ImageRVA)(uint)DebugInfoEntryOffset,
-            reader.ImageEndOffset - DebugInfoEntryOffset);
+            reader.ImageEndOffset - DebugInfoEntryOffset));
         return reader.GetDebugInfo(SyntheticDebugInfoTable(reader, section), (DebugInfoOffset)0);
     }
 

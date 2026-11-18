@@ -54,7 +54,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
                 ReadyToRunSection? manifestHandle = null;
                 foreach (var s in reader.GetSections())
                 {
-                    if (s.Type == ReadyToRunSectionType.ManifestMetadata)
+                    if (s is KnownReadyToRunSection { Type: ReadyToRunSectionType.ManifestMetadata })
                     {
                         manifestHandle = s;
                         break;
@@ -142,7 +142,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             ReadyToRunSection? manifestHandle = null;
             foreach (var s in reader.GetSections())
             {
-                if (s.Type == ReadyToRunSectionType.ManifestMetadata)
+                if (s is KnownReadyToRunSection { Type: ReadyToRunSectionType.ManifestMetadata })
                 {
                     manifestHandle = s;
                     break;
