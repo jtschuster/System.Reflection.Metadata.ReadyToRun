@@ -91,7 +91,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         public uint GetUnsigned()
         {
             uint value = 0;
-            Offset = _imageReader.DecodeUnsigned(Offset, _endOffset, ref value);
+            Offset = _imageReader.DecodeUnsigned(Offset, ref value);
             EnsureWithinBounds();
             return value;
         }

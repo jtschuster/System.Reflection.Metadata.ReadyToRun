@@ -287,6 +287,33 @@ public sealed class ApiConventionTests
     }
 
     [Fact]
+    public void MethodDefEntryPoints_UsesValidatedNativeArrayHandle()
+    {
+        Type handle = RequireType("MethodDefEntryPointsNativeArrayHandle");
+        Assert.True(handle.IsValueType);
+        Assert.True(handle.IsDefined(typeof(IsReadOnlyAttribute), inherit: false));
+        Assert.Empty(handle.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Null(StructuralAssembly.GetType($"{Namespace}.MethodDefEntryPointsTable", throwOnError: false));
+        Assert.DoesNotContain(
+            handle.GetMethods(BindingFlags.Public | BindingFlags.Static),
+            method => (method.Name == "op_Implicit" || method.Name == "op_Explicit")
+                && method.GetParameters().Any(parameter => parameter.ParameterType == typeof(ReadyToRunSection)));
+
+        PropertyInfo? count = handle.GetProperty("Count", BindingFlags.Public | BindingFlags.Instance);
+        Assert.Equal(typeof(int), count?.PropertyType);
+
+        MethodInfo? getTable = typeof(ReadyToRunReader).GetMethod(
+            "GetMethodDefEntryPointsTable",
+            BindingFlags.Public | BindingFlags.Instance);
+        Assert.Equal(handle, getTable?.ReturnType);
+
+        MethodInfo? enumerate = typeof(ReadyToRunReader).GetMethod(
+            "EnumerateMethodDefEntryPoints",
+            BindingFlags.Public | BindingFlags.Instance);
+        Assert.Equal(handle, enumerate?.GetParameters()[0].ParameterType);
+    }
+
+    [Fact]
     public void SignatureDecodingOptions_ArePublicAndImplementedByTheDefaultOptionsRecord()
     {
         Type optionsInterface = RequireType("IReadyToRunSignatureDecodingOptions");

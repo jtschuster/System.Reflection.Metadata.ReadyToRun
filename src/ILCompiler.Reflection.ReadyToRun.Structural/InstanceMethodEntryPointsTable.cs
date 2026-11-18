@@ -176,13 +176,13 @@ namespace System.Reflection.Metadata.ReadyToRun
             int containingEndOffset,
             out uint rawRuntimeFunctionIdAndFlags)
         {
-            var parser = new NativeParser(
-                _nativeReader,
-                (uint)offset,
-                (uint)containingEndOffset);
             int encodedIdOffset = offset;
-            uint id = rawRuntimeFunctionIdAndFlags = parser.GetUnsigned();
-            offset = (int)parser.Offset;
+            uint id = 0;
+            offset = (int)_nativeReader.DecodeUnsigned(
+                (uint)offset,
+                (uint)containingEndOffset,
+                ref id);
+            rawRuntimeFunctionIdAndFlags = id;
 
             FixupCellListHandle? fixupCells = null;
             RuntimeFunctionIndex runtimeFunctionIndex;
@@ -191,8 +191,12 @@ namespace System.Reflection.Metadata.ReadyToRun
             {
                 if ((id & 2) != 0)
                 {
-                    int backReferenceOffset = (int)parser.Offset;
-                    uint delta = parser.GetUnsigned();
+                    int backReferenceOffset = offset;
+                    uint delta = 0;
+                    _ = _nativeReader.DecodeUnsigned(
+                        (uint)offset,
+                        (uint)containingEndOffset,
+                        ref delta);
                     if (delta > (uint)(backReferenceOffset - containingStartOffset))
                         throw new BadImageFormatException("Fixup-cell list back-reference points outside its containing section.");
                 }

@@ -305,12 +305,12 @@ public sealed class CompatibilityTableValidationTests
             ]);
         ReadyToRunSection section = reader.GetSections().Single(
             section => section.Type == ReadyToRunSectionType.MethodDefEntryPoints);
-        MethodDefEntryPointsTable table = reader.GetMethodDefEntryPointsTable(section);
+        MethodDefEntryPointsNativeArrayHandle handle = reader.GetMethodDefEntryPointsTable(section);
 
         Assert.Throws<BadImageFormatException>(
-            () => reader.TryGetMethodDefEntryPoint(table, (MethodRid)1, out _));
+            () => reader.TryGetMethodDefEntryPoint(handle, (MethodRid)1, out _));
         Assert.Throws<BadImageFormatException>(
-            () => reader.EnumerateMethodDefEntryPoints(table).ToList());
+            () => reader.EnumerateMethodDefEntryPoints(handle).ToList());
     }
 
     [Fact]
@@ -327,12 +327,12 @@ public sealed class CompatibilityTableValidationTests
             ]);
         ReadyToRunSection section = reader.GetSections().Single(
             section => section.Type == ReadyToRunSectionType.MethodDefEntryPoints);
-        MethodDefEntryPointsTable table = reader.GetMethodDefEntryPointsTable(section);
+        MethodDefEntryPointsNativeArrayHandle handle = reader.GetMethodDefEntryPointsTable(section);
 
         Assert.Throws<BadImageFormatException>(
-            () => reader.TryGetMethodDefEntryPoint(table, (MethodRid)1, out _));
+            () => reader.TryGetMethodDefEntryPoint(handle, (MethodRid)1, out _));
         Assert.Throws<BadImageFormatException>(
-            () => reader.EnumerateMethodDefEntryPoints(table).ToList());
+            () => reader.EnumerateMethodDefEntryPoints(handle).ToList());
     }
 
     [Fact]
@@ -347,9 +347,10 @@ public sealed class CompatibilityTableValidationTests
             ReadyToRunSectionType.MethodDefEntryPoints,
             content);
         ReadyToRunSection section = Assert.Single(reader.GetSections());
-        MethodDefEntryPointsTable table = reader.GetMethodDefEntryPointsTable(section);
+        MethodDefEntryPointsNativeArrayHandle handle = reader.GetMethodDefEntryPointsTable(section);
+        Assert.Equal(1, handle.Count);
 
-        Assert.True(reader.TryGetMethodDefEntryPoint(table, (MethodRid)1, out MethodDefEntry entry));
+        Assert.True(reader.TryGetMethodDefEntryPoint(handle, (MethodRid)1, out MethodDefEntry entry));
         Assert.Equal(13u, entry.RawRuntimeFunctionIdAndFlags);
         Assert.Equal((RuntimeFunctionIndex)3, entry.EntryPointIndex);
 

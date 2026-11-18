@@ -205,8 +205,8 @@ internal static class ReadyToRunInspector
         if (sections.ContainsKey(ReadyToRunSectionType.MethodDefEntryPoints))
         {
             ReadyToRunSection section = header.Sections.Single(section => section.Type == ReadyToRunSectionType.MethodDefEntryPoints);
-            MethodDefEntryPointsTable table = reader.GetMethodDefEntryPointsTable(section);
-            foreach (var unused in reader.EnumerateMethodDefEntryPoints(table))
+            MethodDefEntryPointsNativeArrayHandle handle = reader.GetMethodDefEntryPointsTable(section);
+            foreach (var unused in reader.EnumerateMethodDefEntryPoints(handle))
                 methodDefEntryPointCount++;
         }
 
