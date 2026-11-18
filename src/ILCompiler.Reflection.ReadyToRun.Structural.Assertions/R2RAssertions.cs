@@ -172,7 +172,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
         {
             foreach (ReadyToRunSection s in _reader.GetSections())
             {
-                if (s.Type == ReadyToRunSectionType.CrossModuleInlineInfo)
+                if (s is KnownReadyToRunSection { Type: ReadyToRunSectionType.CrossModuleInlineInfo })
                 {
                     reason = "CrossModuleInlineInfo section is present";
                     return true;
@@ -188,7 +188,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             var observed = new List<string>();
             foreach (ReadyToRunSection s in _reader.GetSections())
             {
-                if (s.Type != ReadyToRunSectionType.CrossModuleInlineInfo)
+                if (s is not KnownReadyToRunSection { Type: ReadyToRunSectionType.CrossModuleInlineInfo })
                     continue;
                 foreach (CrossModuleInlineEntry entry in EnumerateCrossModuleInlineEntries(s))
                 {
@@ -220,7 +220,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             }
             foreach (ReadyToRunSection s in _reader.GetSections())
             {
-                if (s.Type != ReadyToRunSectionType.CrossModuleInlineInfo)
+                if (s is not KnownReadyToRunSection { Type: ReadyToRunSectionType.CrossModuleInlineInfo })
                     continue;
                 foreach (CrossModuleInlineEntry entry in EnumerateCrossModuleInlineEntries(s))
                 {
@@ -352,9 +352,9 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
         {
             foreach (ReadyToRunSection s in _reader.GetSections())
             {
-                switch (s.Type)
+                switch (s)
                 {
-                    case ReadyToRunSectionType.InliningInfo:
+                    case KnownReadyToRunSection { Type: ReadyToRunSectionType.InliningInfo }:
                         {
                             InliningInfoTable table = _reader.GetInliningInfoTable(s);
                             foreach (InliningInfoEntry e in table.Entries)
@@ -368,11 +368,11 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
                             }
                             break;
                         }
-                    case ReadyToRunSectionType.InliningInfo2:
+                    case KnownReadyToRunSection { Type: ReadyToRunSectionType.InliningInfo2 }:
                         foreach (var pair in EnumerateInliningInfo2Pairs(s, ownerModuleIndex: 0))
                             yield return pair;
                         break;
-                    case ReadyToRunSectionType.CrossModuleInlineInfo:
+                    case KnownReadyToRunSection { Type: ReadyToRunSectionType.CrossModuleInlineInfo }:
                         {
                             foreach (CrossModuleInlineEntry e in EnumerateCrossModuleInlineEntries(s))
                             {
@@ -415,7 +415,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
             ReadyToRunSection? componentAssembliesHandle = null;
             foreach (ReadyToRunSection s in _reader.GetSections())
             {
-                if (s.Type == ReadyToRunSectionType.ComponentAssemblies)
+                if (s is KnownReadyToRunSection { Type: ReadyToRunSectionType.ComponentAssemblies })
                 {
                     componentAssembliesHandle = s;
                     break;
@@ -444,7 +444,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Assertions
 
                 foreach (ReadyToRunSection cs in coreHeader.Sections)
                 {
-                    if (cs.Type == ReadyToRunSectionType.InliningInfo2)
+                    if (cs is KnownReadyToRunSection { Type: ReadyToRunSectionType.InliningInfo2 })
                     {
                         foreach (var pair in EnumerateInliningInfo2Pairs(cs, moduleIndex))
                             yield return pair;

@@ -288,7 +288,7 @@ namespace System.Reflection.Metadata.ReadyToRun.Tests
         {
             foreach (ReadyToRunSection section in sections)
             {
-                if (section.Type == type)
+                if (section is KnownReadyToRunSection { Type: var sectionType } && sectionType == type)
                     return section;
             }
 

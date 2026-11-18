@@ -28,7 +28,13 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
     public void RequiredSectionsArePresent()
     {
         using ReaderScope scope = _image.OpenReader();
-        HashSet<ReadyToRunSectionType> types = scope.Reader.GetSections().Select(s => s.Type).ToHashSet();
+        HashSet<ReadyToRunSectionType> types = scope.Reader.GetSections()
+            .Select(s => s switch
+            {
+                KnownReadyToRunSection known => known.Type,
+                UnknownReadyToRunSection unknown => throw new InvalidOperationException($"Unexpected section {unknown.TypeId}."),
+            })
+            .ToHashSet();
 
         Assert.Contains(ReadyToRunSectionType.RuntimeFunctions, types);
         Assert.Contains(ReadyToRunSectionType.MethodDefEntryPoints, types);
@@ -379,7 +385,7 @@ public sealed class StructuralReaderImageTests : IClassFixture<GenericsR2RImageF
         => Section(reader, ReadyToRunSectionType.InstanceMethodEntryPoints);
 
     private static ReadyToRunSection Section(ReadyToRunReader reader, ReadyToRunSectionType type)
-        => reader.GetSections().Single(s => s.Type == type);
+        => reader.GetSections().Single(s => s is KnownReadyToRunSection { Type: var sectionType } && sectionType == type);
 
     private static uint ReadBucketMask(ReadyToRunReader reader, ReadyToRunSection section)
     {

@@ -22,7 +22,7 @@ namespace System.Reflection.Metadata.ReadyToRun
         {
             int sectionOffset = ValidateAndGetSectionOffset(section, expectedType, operation);
             if (section.Size <= 0)
-                throw new BadImageFormatException($"ReadyToRun section {(int)section.Type} is too small to hold a NativeHashtable.");
+                throw new BadImageFormatException($"ReadyToRun section {section.RawType} is too small to hold a NativeHashtable.");
 
             _ = new NativeHashtable(_nativeReader, new NativeParser(_nativeReader, (uint)sectionOffset), (uint)(sectionOffset + section.Size));
             return sectionOffset;

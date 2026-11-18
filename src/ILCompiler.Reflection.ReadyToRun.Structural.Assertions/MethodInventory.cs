@@ -43,16 +43,16 @@ internal sealed class MethodInventory
         bool foundImageWideMethodDef = false;
         foreach (ReadyToRunSection section in reader.GetSections())
         {
-            switch (section.Type)
+            switch (section)
             {
-                case ReadyToRunSectionType.MethodDefEntryPoints:
+                case KnownReadyToRunSection { Type: ReadyToRunSectionType.MethodDefEntryPoints }:
                     // In non-composite images this contains the methods from module 0.
                     // In composite images this section is absent at image scope; per-component
                     // sections carry method def entry points instead.
                     AddMethodDefEntries(reader, resolver, section, moduleIndex: 0, importSections, methods);
                     foundImageWideMethodDef = true;
                     break;
-                case ReadyToRunSectionType.InstanceMethodEntryPoints:
+                case KnownReadyToRunSection { Type: ReadyToRunSectionType.InstanceMethodEntryPoints }:
                     AddInstanceMethodEntries(reader, nativeReader, resolver, section, importSections, methods);
                     break;
             }
@@ -77,7 +77,7 @@ internal sealed class MethodInventory
         var sections = new List<ImportSectionSignatures>();
         foreach (ReadyToRunSection sectionHandle in reader.GetSections())
         {
-            if (sectionHandle.Type != ReadyToRunSectionType.ImportSections)
+            if (sectionHandle is not KnownReadyToRunSection { Type: ReadyToRunSectionType.ImportSections })
                 continue;
 
             ImportSectionsTableSection table = reader.GetImportSectionsTableSection(sectionHandle);
@@ -156,7 +156,7 @@ internal sealed class MethodInventory
         ReadyToRunSection? componentAssembliesHandle = null;
         foreach (ReadyToRunSection s in reader.GetSections())
         {
-            if (s.Type == ReadyToRunSectionType.ComponentAssemblies)
+            if (s is KnownReadyToRunSection { Type: ReadyToRunSectionType.ComponentAssemblies })
             {
                 componentAssembliesHandle = s;
                 break;
@@ -187,7 +187,7 @@ internal sealed class MethodInventory
 
             foreach (ReadyToRunSection section in coreHeader.Sections)
             {
-                if (section.Type == ReadyToRunSectionType.MethodDefEntryPoints)
+                if (section is KnownReadyToRunSection { Type: ReadyToRunSectionType.MethodDefEntryPoints })
                 {
                     AddMethodDefEntries(reader, resolver, section, moduleIndex, importSections, output);
                 }

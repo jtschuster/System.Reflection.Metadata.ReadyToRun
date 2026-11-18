@@ -116,6 +116,14 @@ public sealed class ReadyToRunCompatibilityTests
 
         Assert.Equal(ReadyToRunFormatSupport.CompatibleUnknownMinorVersion, header.FormatSupport);
         Assert.Equal(ReadyToRunFormatSupport.CompatibleUnknownMinorVersion, reader.FormatSupport);
+        KnownReadyToRunSection known = section switch
+        {
+            KnownReadyToRunSection value => value,
+            _ => throw new Xunit.Sdk.XunitException("Expected a known section."),
+        };
+        Assert.Equal((int)ReadyToRunSectionType.CompilerIdentifier, section.RawType);
+        Assert.Equal(known.RawRelativeVirtualAddress, section.RawRelativeVirtualAddress);
+        Assert.Equal(known.RawSize, section.RawSize);
         Assert.Equal(content, reader.GetSectionBytes(section));
         Assert.Equal("AB", reader.GetCompilerIdentifier(section));
     }
@@ -160,7 +168,15 @@ public sealed class ReadyToRunCompatibilityTests
         using ReadyToRunReader reader = CreateReader(image);
 
         ReadyToRunSection section = Assert.Single(reader.GetSections());
-        Assert.Equal(unknownSectionType, (int)section.Type);
+        UnknownReadyToRunSection unknown = section switch
+        {
+            UnknownReadyToRunSection value => value,
+            _ => throw new Xunit.Sdk.XunitException("Expected an unknown section."),
+        };
+        Assert.Equal(unknownSectionType, unknown.TypeId);
+        Assert.Equal(unknownSectionType, section.RawType);
+        Assert.Equal(unknown.RawRelativeVirtualAddress, section.RawRelativeVirtualAddress);
+        Assert.Equal(unknown.RawSize, section.RawSize);
         Assert.Equal(content, reader.GetSectionBytes(section));
     }
 

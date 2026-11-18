@@ -181,7 +181,6 @@ namespace System.Reflection.Metadata.ReadyToRun
             for (int i = 0; i < sectionCountInt; i++)
             {
                 int type = _nativeReader.ReadInt32(ref curOffset);
-                var sectionType = (ReadyToRunSectionType)type;
                 if (ValidationMode == ReadyToRunValidationMode.Strict &&
                     !profile.IsKnownCoreClrSectionType(type))
                 {
@@ -200,7 +199,10 @@ namespace System.Reflection.Metadata.ReadyToRun
                         $"ReadyToRun section {type} exceeds the reader's 31-bit RVA or size range.");
                 }
 
-                var section = new ReadyToRunSection(sectionType, (ImageRVA)sectionStartRva, (int)sectionLength);
+                ReadyToRunSection section = ReadyToRunSection.Create(
+                    type,
+                    (ImageRVA)sectionStartRva,
+                    (int)sectionLength);
                 ValidateAndGetSectionOffset(section);
                 sections.Add(section);
             }

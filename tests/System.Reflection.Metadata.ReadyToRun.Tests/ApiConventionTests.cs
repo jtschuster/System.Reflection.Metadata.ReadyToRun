@@ -7,6 +7,8 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+using Internal.Runtime;
+
 using Xunit;
 
 namespace System.Reflection.Metadata.ReadyToRun.Tests;
@@ -361,11 +363,88 @@ public sealed class ApiConventionTests
         Assert.False(coreHeader.GetProperty(nameof(ReadyToRunCoreHeader.Sections))!.CanWrite);
 
         Type section = typeof(ReadyToRunSection);
-        Assert.Empty(section.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
-        Assert.False(section.GetProperty(nameof(ReadyToRunSection.Type))!.CanWrite);
+        ConstructorInfo[] sectionConstructors = section.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        Assert.Equal(2, sectionConstructors.Length);
+        Assert.Contains(sectionConstructors, constructor =>
+            constructor.GetParameters() is [{ ParameterType: var parameterType }] &&
+            parameterType == typeof(KnownReadyToRunSection));
+        Assert.Contains(sectionConstructors, constructor =>
+            constructor.GetParameters() is [{ ParameterType: var parameterType }] &&
+            parameterType == typeof(UnknownReadyToRunSection));
+        Assert.False(section.GetProperty("Type")!.CanWrite);
         Assert.False(section.GetProperty(nameof(ReadyToRunSection.RelativeVirtualAddress))!.CanWrite);
         Assert.False(section.GetProperty(nameof(ReadyToRunSection.Size))!.CanWrite);
         Assert.Null(section.GetProperty("DelayLoadMethodThunkRva", BindingFlags.Public | BindingFlags.Instance));
+    }
+
+    [Fact]
+    public void ReadyToRunSection_IsNonBoxingCSharpUnion()
+    {
+        Type section = typeof(ReadyToRunSection);
+
+        Assert.True(section.IsDefined(typeof(UnionAttribute), inherit: false));
+        Assert.Contains(typeof(IUnion), section.GetInterfaces());
+        Assert.True(section.IsValueType);
+        Assert.True(section.IsDefined(typeof(IsReadOnlyAttribute), inherit: false));
+        Assert.Empty(section.GetFields(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Equal(typeof(bool), section.GetProperty(nameof(ReadyToRunSection.HasValue))?.PropertyType);
+        Assert.Equal(typeof(object), section.GetProperty(nameof(ReadyToRunSection.Value))?.PropertyType);
+
+        Assert.NotNull(section.GetMethod(
+            nameof(ReadyToRunSection.TryGetValue),
+            new[] { typeof(KnownReadyToRunSection).MakeByRefType() }));
+        Assert.NotNull(section.GetMethod(
+            nameof(ReadyToRunSection.TryGetValue),
+            new[] { typeof(UnknownReadyToRunSection).MakeByRefType() }));
+        Assert.NotNull(section.GetProperty(nameof(ReadyToRunSection.RawType)));
+        Assert.Equal(typeof(uint), section.GetProperty(nameof(ReadyToRunSection.RawRelativeVirtualAddress))?.PropertyType);
+        Assert.Equal(typeof(uint), section.GetProperty(nameof(ReadyToRunSection.RawSize))?.PropertyType);
+    }
+
+    [Fact]
+    public void ReadyToRunSection_CasesPreserveTypedAndRawDirectoryFields()
+    {
+        var knownValue = new KnownReadyToRunSection(
+            ReadyToRunSectionType.RuntimeFunctions,
+            (ImageRVA)0x1234u,
+            0x56);
+        ReadyToRunSection known = knownValue;
+
+        var knownMatch = known switch
+        {
+            KnownReadyToRunSection value => value,
+            UnknownReadyToRunSection => throw new InvalidOperationException("Known section matched as unknown."),
+        };
+        Assert.Equal(knownValue, knownMatch);
+        Assert.Equal((int)ReadyToRunSectionType.RuntimeFunctions, known.RawType);
+        Assert.Equal(0x1234u, known.RawRelativeVirtualAddress);
+        Assert.Equal(0x56u, known.RawSize);
+
+        var unknownValue = new UnknownReadyToRunSection(999, (ImageRVA)0x2345u, 0x67);
+        ReadyToRunSection unknown = unknownValue;
+
+        var unknownMatch = unknown switch
+        {
+            KnownReadyToRunSection => throw new InvalidOperationException("Unknown section matched as known."),
+            UnknownReadyToRunSection value => value,
+        };
+        Assert.Equal(unknownValue, unknownMatch);
+        Assert.Equal(999, unknown.RawType);
+        Assert.Equal(0x2345u, unknown.RawRelativeVirtualAddress);
+        Assert.Equal(0x67u, unknown.RawSize);
+        Assert.Equal(unknownValue, unknown.Value);
+
+        Assert.True(default(ReadyToRunSection).HasValue);
+        Assert.IsType<UnknownReadyToRunSection>(default(ReadyToRunSection).Value);
+
+        ReadyToRunSection defaultKnown = default(KnownReadyToRunSection);
+        Assert.Equal(
+            default(KnownReadyToRunSection),
+            defaultKnown switch
+            {
+                KnownReadyToRunSection value => value,
+                UnknownReadyToRunSection => throw new InvalidOperationException("Default known case changed type."),
+            });
     }
 
     [Fact]

@@ -28,7 +28,7 @@ public sealed class SectionCoverage100_126Tests
         => new ReadyToRunReader(new WebcilImageReader(image), new NativeReader(new MemoryStream(image)));
 
     private static ReadyToRunSection FindSection(IReadOnlyList<ReadyToRunSection> sections, ReadyToRunSectionType type)
-        => sections.Single(s => s.Type == type);
+        => sections.Single(s => s is KnownReadyToRunSection { Type: var sectionType } && sectionType == type);
 
     /// <summary>
     /// Returns the content of a single-section Webcil image built from <paramref name="content"/>.

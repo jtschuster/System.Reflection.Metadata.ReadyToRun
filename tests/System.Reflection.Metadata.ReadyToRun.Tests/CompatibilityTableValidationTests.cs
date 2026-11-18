@@ -463,34 +463,34 @@ public sealed class CompatibilityTableValidationTests
 
     private static void ParseTable(ReadyToRunReader reader, ReadyToRunSection section)
     {
-        switch (section.Type)
+        switch (section)
         {
-            case ReadyToRunSectionType.RuntimeFunctions:
+            case KnownReadyToRunSection { Type: ReadyToRunSectionType.RuntimeFunctions }:
                 reader.GetRuntimeFunctionsTable(section);
                 break;
-            case ReadyToRunSectionType.HotColdMap:
+            case KnownReadyToRunSection { Type: ReadyToRunSectionType.HotColdMap }:
                 reader.GetHotColdMapTable(section);
                 break;
-            case ReadyToRunSectionType.ComponentAssemblies:
+            case KnownReadyToRunSection { Type: ReadyToRunSectionType.ComponentAssemblies }:
                 reader.GetComponentAssembliesTable(section);
                 break;
-            case ReadyToRunSectionType.ExceptionInfo:
+            case KnownReadyToRunSection { Type: ReadyToRunSectionType.ExceptionInfo }:
                 reader.GetExceptionInfoTable(section);
                 break;
-            case ReadyToRunSectionType.ImportSections:
+            case KnownReadyToRunSection { Type: ReadyToRunSectionType.ImportSections }:
                 reader.GetImportSectionsTableSection(section);
                 break;
-            case ReadyToRunSectionType.EnclosingTypeMap:
+            case KnownReadyToRunSection { Type: ReadyToRunSectionType.EnclosingTypeMap }:
                 reader.GetEnclosingTypeMapTable(section);
                 break;
-            case ReadyToRunSectionType.MethodIsGenericMap:
+            case KnownReadyToRunSection { Type: ReadyToRunSectionType.MethodIsGenericMap }:
                 reader.GetMethodIsGenericMapTable(section);
                 break;
-            case ReadyToRunSectionType.TypeGenericInfoMap:
+            case KnownReadyToRunSection { Type: ReadyToRunSectionType.TypeGenericInfoMap }:
                 reader.GetTypeGenericInfoMapTable(section);
                 break;
             default:
-                throw new InvalidOperationException($"No parser registered for {section.Type}.");
+                throw new InvalidOperationException($"No parser registered for {section.RawType}.");
         }
     }
 

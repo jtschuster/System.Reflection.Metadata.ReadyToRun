@@ -191,20 +191,26 @@ internal static class ReadyToRunInspector
 
         ReadyToRunHeader header = reader.ReadyToRunHeader;
         Dictionary<ReadyToRunSectionType, SectionSummary> sections = header.Sections.ToDictionary(
-            section => section.Type,
+            section => section switch
+            {
+                KnownReadyToRunSection known => known.Type,
+                UnknownReadyToRunSection unknown => (ReadyToRunSectionType)unknown.TypeId,
+            },
             section => new SectionSummary((int)section.RelativeVirtualAddress, section.Size));
 
         int runtimeFunctionCount = 0;
         if (sections.ContainsKey(ReadyToRunSectionType.RuntimeFunctions))
         {
-            ReadyToRunSection section = header.Sections.Single(section => section.Type == ReadyToRunSectionType.RuntimeFunctions);
+            ReadyToRunSection section = header.Sections.Single(
+                section => section is KnownReadyToRunSection { Type: ReadyToRunSectionType.RuntimeFunctions });
             runtimeFunctionCount = reader.GetRuntimeFunctionsTable(section).Entries.Count;
         }
 
         int methodDefEntryPointCount = 0;
         if (sections.ContainsKey(ReadyToRunSectionType.MethodDefEntryPoints))
         {
-            ReadyToRunSection section = header.Sections.Single(section => section.Type == ReadyToRunSectionType.MethodDefEntryPoints);
+            ReadyToRunSection section = header.Sections.Single(
+                section => section is KnownReadyToRunSection { Type: ReadyToRunSectionType.MethodDefEntryPoints });
             MethodDefEntryPointsTable table = reader.GetMethodDefEntryPointsTable(section);
             foreach (var unused in reader.EnumerateMethodDefEntryPoints(table))
                 methodDefEntryPointCount++;
@@ -213,7 +219,8 @@ internal static class ReadyToRunInspector
         string compilerIdentifier = string.Empty;
         if (sections.ContainsKey(ReadyToRunSectionType.CompilerIdentifier))
         {
-            ReadyToRunSection section = header.Sections.Single(section => section.Type == ReadyToRunSectionType.CompilerIdentifier);
+            ReadyToRunSection section = header.Sections.Single(
+                section => section is KnownReadyToRunSection { Type: ReadyToRunSectionType.CompilerIdentifier });
             compilerIdentifier = reader.GetCompilerIdentifier(section);
         }
 
